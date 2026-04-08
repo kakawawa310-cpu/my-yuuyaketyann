@@ -1,20 +1,19 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import os, json, re
+import os, json, re, asyncio
 from flask import Flask
 from threading import Thread
 
 # --- 設定保存機能 ---
 CONFIG_FILE = "config.json"
-SOURCE_CHANNEL_ID = 1472220342889218250
+SOURCE_CHANNEL_ID = 1472220342889218250  # 監視対象サーバーIDを読み取るチャンネル
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r", encoding="utf-8") as f: return json.load(f)
     return {
         "log_channel_id": None, 
-        "verify_role_id": None, 
         "invite_anti_link": True
     }
 
@@ -41,44 +40,6 @@ def home(): return "Bot is alive!"
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 def keep_alive(): Thread(target=run, daemon=True).start()
 
-# --- 認証ボタンUI (3秒制限対策済み) ---
-class VerifyView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="認証する", style=discord.ButtonStyle.green, custom_id="verify_btn")
-    async def verify(self, interaction: discord.Interaction):
-        # 3秒制限を回避するために保留状態にする
-        await interaction.response.defer(ephemeral=True)
-
-        watch_list = await get_watch_guilds(interaction.client)
-        blacklisted_names = []
-        
-        for g_id in watch_list:
-            guild = interaction.client.get_guild(g_id)
-            if guild and guild.get_member(interaction.user.id):
-                blacklisted_names.append(guild.name)
-
-        if blacklisted_names:
-            await interaction.followup.send(f"❌ 対象サーバー（{', '.join(blacklisted_names)}）に参加しているため認証できません。退出してから再度お試しください。", ephemeral=True)
-            await send_log(interaction.client, f"⚠️ {interaction.user.mention} の認証をブロックしました（在籍: {', '.join(blacklisted_names)}）")
-            return
-
-        role_id = config_data.get("verify_role_id")
-        if role_id:
-            role = interaction.guild.get_role(role_id)
-            if role:
-                try:
-                    await interaction.user.add_roles(role)
-                    await interaction.followup.send("✅ 認証に成功しました！", ephemeral=True)
-                    await send_log(interaction.client, f"✅ {interaction.user.mention} が認証を完了しました。")
-                except discord.Forbidden:
-                    await interaction.followup.send("❌ ロール付与権限がありません。Botの順位をサーバー設定で上げてください。", ephemeral=True)
-            else:
-                await interaction.followup.send("⚠️ ロールが見つかりません。", ephemeral=True)
-        else:
-            await interaction.followup.send("⚠️ 認証ロールが未設定です。", ephemeral=True)
-
 async def send_log(bot, message):
     log_id = config_data.get("log_channel_id")
     if log_id:
@@ -88,9 +49,9 @@ async def send_log(bot, message):
 # --- Bot本体 ---
 class MyBot(commands.Bot):
     def __init__(self):
+        # メッセージ削除のために全てのIntentsを有効化
         super().__init__(command_prefix="!", intents=discord.Intents.all())
     async def setup_hook(self):
-        self.add_view(VerifyView())
         await self.tree.sync()
 
 bot = MyBot()
@@ -101,17 +62,33 @@ async def on_ready():
     await bot.change_presence(status=discord.Status.online, activity=activity)
     print('起動完了：お問い合わせは、宣伝茶亭のさぴょにゃんへ！')
 
-# 1. 認証パネル設置コマンド
-@bot.tree.command(name="setup_verify", description="認証パネル設置とロール・ログ設定")
-async def setup_verify(interaction: discord.Interaction, role: discord.Role, log_channel: discord.TextChannel):
-    config_data["verify_role_id"] = role.id
+# --- 新機能：退出した人のメッセージを自動削除 ---
+@bot.event
+async def on_member_remove(member):
+    count = 0
+    # サーバー内の全テキストチャンネルをスキャン（Botが閲覧できる範囲）
+    for channel in member.guild.text_channels:
+        try:
+            # 直近100件のメッセージから退出者のものを探して削除
+            deleted = await channel.purge(limit=100, check=lambda m: m.author.id == member.id)
+            count += len(deleted)
+        except discord.Forbidden:
+            continue # 権限がないチャンネルはスキップ
+        except Exception as e:
+            print(f"削除エラー: {e}")
+
+    if count > 0:
+        await send_log(bot, f"🗑️ {member.mention} さんのメッセージを計 {count} 件削除完了しました。")
+    else:
+        await send_log(bot, f"👤 {member.mention} さんが退出しましたが、削除対象のメッセージは見つかりませんでした。")
+
+# --- 設定用コマンド ---
+@bot.tree.command(name="setup_logs", description="ログを送信するチャンネルを設定します")
+async def setup_logs(interaction: discord.Interaction, log_channel: discord.TextChannel):
     config_data["log_channel_id"] = log_channel.id
     save_config(config_data)
-    embed = discord.Embed(title="✅ 認証パネル", description="ボタンを押して認証してください。\n※対象サーバーにいる場合は認証できません。", color=0x3498db)
-    await interaction.channel.send(embed=embed, view=VerifyView())
-    await interaction.response.send_message(f"✅ 設定完了（監視元: <#{SOURCE_CHANNEL_ID}>）", ephemeral=True)
+    await interaction.response.send_message(f"✅ ログチャンネルを {log_channel.mention} に設定しました。", ephemeral=True)
 
-# 2. 招待リンク無効化ON/OFF
 @bot.tree.command(name="toggle_anti_invite", description="招待リンク無効化のON/OFF")
 @app_commands.choices(setting=[app_commands.Choice(name="ON", value=1), app_commands.Choice(name="OFF", value=0)])
 async def toggle_anti_invite(interaction: discord.Interaction, setting: int):
