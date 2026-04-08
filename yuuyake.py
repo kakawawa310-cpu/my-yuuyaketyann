@@ -13,35 +13,55 @@ def load_config():
     return {
         "log_channel_id": None, 
         "verify_role_id": None, 
-        "invite_anti_link": True,
-        "blacklist_source_channel_id": 1472220342889218250  # ←ここに「IDが書かれたチャンネル」のIDを入れる
+        "blacklist_channel_id": None, # IDが書かれているチャンネル
+        "invite_anti_link": True
     }
 
-# --- Render用Webサーバー ---
+def save_config(config):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+
+config_data = load_config()
+
+# --- ID自動読み取り関数 ---
+async def get_watch_guilds(bot):
+    source_id = config_data.get("blacklist_channel_id")
+    if not source_id: return []
+    channel = bot.get_channel(source_id)
+    if not channel: return []
+    
+    guild_ids = []
+    async for message in channel.history(limit=50): # 直近50件からID抽出
+        found = re.findall(r'\d{17,20}', message.content)
+        guild_ids.extend([int(i) for i in found])
+    return list(set(guild_ids))
+
+# --- Render用サーバー ---
 app = Flask('')
 @app.route('/')
 def home(): return "Bot is alive!"
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 def keep_alive(): Thread(target=run, daemon=True).start()
 
-# --- 認証ボタンのUI ---
+# --- 認証ボタンUI ---
 class VerifyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label="認証する", style=discord.ButtonStyle.green, custom_id="verify_btn")
     async def verify(self, interaction: discord.Interaction):
+        watch_list = await get_watch_guilds(interaction.client)
         blacklisted_names = []
-        for g_id in WATCH_GUILDS:
+        for g_id in watch_list:
             guild = interaction.client.get_guild(g_id)
             if guild and guild.get_member(interaction.user.id):
                 blacklisted_names.append(guild.name)
 
         if blacklisted_names:
-            await interaction.response.send_message(f"❌ 指定サーバー（{', '.join(blacklisted_names)}）に参加しているため認証できません。", ephemeral=True)
+            await interaction.response.send_message(f"❌ 指定サーバーに参加しているため認証できません。", ephemeral=True)
             try:
-                await interaction.user.kick(reason="ブラックリストサーバー参加による認証拒否")
-                await send_log(interaction.client, f"👤 {interaction.user.mention} をキックしました（認証拒否: {', '.join(blacklisted_names)}に在籍）")
+                await interaction.user.kick(reason="ブラックリストサーバー参加")
+                await send_log(interaction.client, f"👤 {interaction.user.mention} をキックしました（認証拒否: {', '.join(blacklisted_names)}）")
             except: pass
             return
 
@@ -51,11 +71,7 @@ class VerifyView(discord.ui.View):
             if role:
                 await interaction.user.add_roles(role)
                 await interaction.response.send_message("✅ 認証に成功しました！", ephemeral=True)
-                await send_log(interaction.client, f"✅ {interaction.user.mention} が認証を完了しました。")
-            else:
-                await interaction.response.send_message("⚠️ ロールが見つかりません。", ephemeral=True)
-        else:
-            await interaction.response.send_message("⚠️ 認証ロールが設定されていません。", ephemeral=True)
+                await send_log(interaction.client, f"✅ {interaction.user.mention} が認証完了")
 
 async def send_log(bot, message):
     log_id = config_data.get("log_channel_id")
@@ -67,7 +83,6 @@ async def send_log(bot, message):
 class MyBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=discord.Intents.all())
-
     async def setup_hook(self):
         self.add_view(VerifyView())
         await self.tree.sync()
@@ -76,62 +91,57 @@ bot = MyBot()
 
 @bot.event
 async def on_ready():
-    activity = discord.Activity(type=discord.ActivityType.watching, name="ゆねっさむの歌声")
-    await bot.change_presence(status=discord.Status.online, activity=activity)
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="ゆねっさむの歌声"))
     print('お問い合わせは、宣伝茶亭のさぴょにゃんへ！')
 
 # 参加時の自動キック
 @bot.event
 async def on_member_join(member):
-    for g_id in WATCH_GUILDS:
+    watch_list = await get_watch_guilds(bot)
+    for g_id in watch_list:
         guild = bot.get_guild(g_id)
         if guild and guild.get_member(member.id):
             try:
                 await member.kick(reason="ブラックリストサーバー参加")
-                await send_log(bot, f"🚨 {member.mention} を自動キックしました（参加時チェック: {guild.name}に在籍）")
+                await send_log(bot, f"🚨 {member.mention} を自動キックしました（在籍: {guild.name}）")
             except: pass
             break
 
-# 1. 認証パネルとログ設定
-@bot.tree.command(name="setup_verify", description="認証パネル設置・ロール・ログチャンネルを一括設定します")
-@app_commands.describe(role="付与するロール", log_channel="ログ用チャンネル")
-async def setup_verify(interaction: discord.Interaction, role: discord.Role, log_channel: discord.TextChannel):
+# 1. 認証パネル・ログ・ID読み取りチャンネルの一括設定
+@bot.tree.command(name="setup_verify", description="認証パネルと各チャンネルの設定")
+async def setup_verify(interaction: discord.Interaction, role: discord.Role, log_channel: discord.TextChannel, blacklist_channel: discord.TextChannel):
     config_data["verify_role_id"] = role.id
     config_data["log_channel_id"] = log_channel.id
+    config_data["blacklist_channel_id"] = blacklist_channel.id
     save_config(config_data)
-    embed = discord.Embed(title="✅ 認証パネル", description="下のボタンを押して認証してください。\n※対象サーバーにいる場合は自動でキックされます。", color=0x2ecc71)
+    
+    embed = discord.Embed(title="✅ 認証パネル", description="ボタンを押して認証してください。", color=0x2ecc71)
     await interaction.channel.send(embed=embed, view=VerifyView())
-    await interaction.response.send_message("✅ 設置と設定が完了しました！", ephemeral=True)
+    await interaction.response.send_message("✅ 設定を保存しました！", ephemeral=True)
 
-# 2. 招待リンク無効化のON/OFF設定
-@bot.tree.command(name="toggle_anti_invite", description="招待リンクの自動無効化をON/OFFします")
-@app_commands.choices(setting=[
-    app_commands.Choice(name="ON (有効)", value=1),
-    app_commands.Choice(name="OFF (無効)", value=0)
-])
+# 2. 招待リンク無効化設定
+@bot.tree.command(name="toggle_anti_invite", description="招待リンク無効化のON/OFF")
+@app_commands.choices(setting=[app_commands.Choice(name="ON", value=1), app_commands.Choice(name="OFF", value=0)])
 async def toggle_anti_invite(interaction: discord.Interaction, setting: int):
     config_data["invite_anti_link"] = bool(setting)
     save_config(config_data)
-    status = "ON" if setting else "OFF"
-    await interaction.response.send_message(f"✅ 招待リンク自動無効化を **{status}** にしました。", ephemeral=True)
-    await send_log(bot, f"⚙️ 設定変更: 招待無効化機能が **{status}** になりました。")
+    await interaction.response.send_message(f"✅ 招待リンク無効化を {'ON' if setting else 'OFF'} にしました。", ephemeral=True)
 
 # 招待リンク監視
 @bot.event
 async def on_message(message):
     if message.author.bot or message.guild is None: return
-    
-    # 招待無効化機能がON、かつ監視対象サーバーの場合
-    if config_data.get("invite_anti_link") and message.guild.id in WATCH_GUILDS:
-        codes = re.findall(r'(?:discord\.gg/|discord\.com/invite/)([\w-]+)', message.content)
-        for code in codes:
-            try:
-                invite = await bot.fetch_invite(code)
-                if invite.guild.id in [g.id for g in bot.guilds]:
-                    await invite.delete(reason="自動無効化設定により削除")
-                    await send_log(bot, f"🔗 自鯖招待を無効化しました: {code} (場所: {message.guild.name})")
-            except: pass
-    
+    if config_data.get("invite_anti_link"):
+        watch_list = await get_watch_guilds(bot)
+        if message.guild.id in watch_list:
+            codes = re.findall(r'(?:discord\.gg/|discord\.com/invite/)([\w-]+)', message.content)
+            for code in codes:
+                try:
+                    invite = await bot.fetch_invite(code)
+                    if invite.guild.id in [g.id for g in bot.guilds]:
+                        await invite.delete(reason="自動無効化")
+                        await send_log(bot, f"🔗 招待を無効化: {code}")
+                except: pass
     await bot.process_commands(message)
 
 if __name__ == "__main__":
