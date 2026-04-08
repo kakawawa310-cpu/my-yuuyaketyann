@@ -85,8 +85,6 @@ async def on_ready():
     await bot.change_presence(status=discord.Status.online, activity=activity)
     print('起動完了：お問い合わせは、宣伝茶亭のさぴょにゃんへ！')
 
-self.loop.create_task(update_status_loop(self))
-
 # --- 新機能：退出した人のメッセージを自動削除 ---
 @bot.event
 async def on_member_remove(member):
@@ -120,6 +118,8 @@ async def toggle_anti_invite(interaction: discord.Interaction, setting: int):
     config_data["invite_anti_link"] = bool(setting)
     save_config(config_data)
     await interaction.response.send_message(f"✅ 招待リンク自動無効化を {'ON' if setting else 'OFF'} にしました。", ephemeral=True)
+
+self.loop.create_task(update_status_loop(self))
 
 # 招待リンク監視
 @bot.event
