@@ -7,7 +7,7 @@ from threading import Thread
 
 # --- 設定保存機能 ---
 CONFIG_FILE = "config.json"
-SOURCE_CHANNEL_ID = 1472220342889218250  # IDを読み取るチャンネル
+SOURCE_CHANNEL_ID = 1472220342889218250
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
