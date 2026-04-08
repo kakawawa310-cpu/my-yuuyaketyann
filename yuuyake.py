@@ -78,6 +78,8 @@ async def update_status_loop(bot):
             try: await guild.me.edit(nick=nick)
             except: continue
         await asyncio.sleep(600) # 10分おきにチェック
+        
+self.loop.create_task(update_status_loop(self))
 
 @bot.event
 async def on_ready():
@@ -135,8 +137,6 @@ async def on_message(message):
                         await send_log(bot, f"🔗 招待を無効化しました: {code} (場所: {message.guild.name})")
                 except: pass
     await bot.process_commands(message)
-
-self.loop.create_task(update_status_loop(self))
 
 if __name__ == "__main__":
     keep_alive()
