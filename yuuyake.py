@@ -78,14 +78,14 @@ async def update_status_loop(bot):
             try: await guild.me.edit(nick=nick)
             except: continue
         await asyncio.sleep(600) # 10分おきにチェック
-        
-self.loop.create_task(update_status_loop(self))
 
 @bot.event
 async def on_ready():
     activity = discord.Activity(type=discord.ActivityType.watching, name="ゆねっさむの歌声")
     await bot.change_presence(status=discord.Status.online, activity=activity)
     print('起動完了：お問い合わせは、宣伝茶亭のさぴょにゃんへ！')
+
+self.loop.create_task(update_status_loop(self))
 
 # --- 新機能：退出した人のメッセージを自動削除 ---
 @bot.event
