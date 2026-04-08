@@ -54,6 +54,7 @@ class MyBot(commands.Bot):
         # メッセージ削除のために全てのIntentsを有効化
         super().__init__(command_prefix="!", intents=discord.Intents.all())
     async def setup_hook(self):
+        self.loop.create_task(update_status_loop(self))
         await self.tree.sync()
 
 bot = MyBot()
@@ -118,8 +119,6 @@ async def toggle_anti_invite(interaction: discord.Interaction, setting: int):
     config_data["invite_anti_link"] = bool(setting)
     save_config(config_data)
     await interaction.response.send_message(f"✅ 招待リンク自動無効化を {'ON' if setting else 'OFF'} にしました。", ephemeral=True)
-
-self.loop.create_task(update_status_loop(self))
 
 # 招待リンク監視
 @bot.event
