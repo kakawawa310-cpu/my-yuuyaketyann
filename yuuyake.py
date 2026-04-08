@@ -7,7 +7,7 @@ from threading import Thread
 
 # --- 設定保存機能 ---
 CONFIG_FILE = "config.json"
-SOURCE_CHANNEL_ID = 1472220342889218250  # IDを読み取るチャンネルを固定
+SOURCE_CHANNEL_ID = 1472220342889218250  # IDを読み取るチャンネル
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -34,19 +34,23 @@ async def get_watch_guilds(bot):
         guild_ids.extend([int(i) for i in found])
     return list(set(guild_ids))
 
-# --- Render用サーバー ---
+# --- Render用Webサーバー ---
 app = Flask('')
 @app.route('/')
 def home(): return "Bot is alive!"
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 def keep_alive(): Thread(target=run, daemon=True).start()
 
+# --- 認証ボタンUI (3秒制限対策済み) ---
+class VerifyView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
     @discord.ui.button(label="認証する", style=discord.ButtonStyle.green, custom_id="verify_btn")
     async def verify(self, interaction: discord.Interaction):
-        # --- 修正ポイント：まず「考え中」の合図を送る（これで3秒制限を回避） ---
+        # 3秒制限を回避するために保留状態にする
         await interaction.response.defer(ephemeral=True)
 
-        # IDリストの読み取り（ここで時間がかかる場合がある）
         watch_list = await get_watch_guilds(interaction.client)
         blacklisted_names = []
         
@@ -56,7 +60,6 @@ def keep_alive(): Thread(target=run, daemon=True).start()
                 blacklisted_names.append(guild.name)
 
         if blacklisted_names:
-            # deferの後は send_message ではなく followup.send を使う
             await interaction.followup.send(f"❌ 対象サーバー（{', '.join(blacklisted_names)}）に参加しているため認証できません。退出してから再度お試しください。", ephemeral=True)
             await send_log(interaction.client, f"⚠️ {interaction.user.mention} の認証をブロックしました（在籍: {', '.join(blacklisted_names)}）")
             return
@@ -70,12 +73,11 @@ def keep_alive(): Thread(target=run, daemon=True).start()
                     await interaction.followup.send("✅ 認証に成功しました！", ephemeral=True)
                     await send_log(interaction.client, f"✅ {interaction.user.mention} が認証を完了しました。")
                 except discord.Forbidden:
-                    await interaction.followup.send("❌ Botにロールを付与する権限がありません。Botのロール順位を上げてください。", ephemeral=True)
+                    await interaction.followup.send("❌ ロール付与権限がありません。Botの順位をサーバー設定で上げてください。", ephemeral=True)
             else:
                 await interaction.followup.send("⚠️ ロールが見つかりません。", ephemeral=True)
         else:
             await interaction.followup.send("⚠️ 認証ロールが未設定です。", ephemeral=True)
-
 
 async def send_log(bot, message):
     log_id = config_data.get("log_channel_id")
@@ -99,8 +101,8 @@ async def on_ready():
     await bot.change_presence(status=discord.Status.online, activity=activity)
     print('起動完了：お問い合わせは、宣伝茶亭のさぴょにゃんへ！')
 
-# 1. 認証パネル設置
-@bot.tree.command(name="setup_verify", description="認証パネルとロール・ログ設定")
+# 1. 認証パネル設置コマンド
+@bot.tree.command(name="setup_verify", description="認証パネル設置とロール・ログ設定")
 async def setup_verify(interaction: discord.Interaction, role: discord.Role, log_channel: discord.TextChannel):
     config_data["verify_role_id"] = role.id
     config_data["log_channel_id"] = log_channel.id
@@ -109,7 +111,7 @@ async def setup_verify(interaction: discord.Interaction, role: discord.Role, log
     await interaction.channel.send(embed=embed, view=VerifyView())
     await interaction.response.send_message(f"✅ 設定完了（監視元: <#{SOURCE_CHANNEL_ID}>）", ephemeral=True)
 
-# 2. 招待リンク無効化設定
+# 2. 招待リンク無効化ON/OFF
 @bot.tree.command(name="toggle_anti_invite", description="招待リンク無効化のON/OFF")
 @app_commands.choices(setting=[app_commands.Choice(name="ON", value=1), app_commands.Choice(name="OFF", value=0)])
 async def toggle_anti_invite(interaction: discord.Interaction, setting: int):
