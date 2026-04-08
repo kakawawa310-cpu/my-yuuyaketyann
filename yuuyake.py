@@ -13,19 +13,9 @@ def load_config():
     return {
         "log_channel_id": None, 
         "verify_role_id": None, 
-        "invite_anti_link": True  # デフォルトはON
+        "invite_anti_link": True,
+        "blacklist_source_channel_id": 1472220342889218250  # ←ここに「IDが書かれたチャンネル」のIDを入れる
     }
-
-def save_config(config):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=4, ensure_ascii=False)
-
-config_data = load_config()
-
-# --- 監視対象サーバーIDリスト ---
-WATCH_GUILDS = [
-    # ここにIDをリスト形式で入れてください
-]
 
 # --- Render用Webサーバー ---
 app = Flask('')
