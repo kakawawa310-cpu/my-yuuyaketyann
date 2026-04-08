@@ -4,6 +4,8 @@ from discord.ext import commands
 import os, json, re, asyncio
 from flask import Flask
 from threading import Thread
+from datetime import datetime, timedelta, timezone
+import asyncio
 
 # --- 設定保存機能 ---
 CONFIG_FILE = "config.json"
@@ -55,6 +57,27 @@ class MyBot(commands.Bot):
         await self.tree.sync()
 
 bot = MyBot()
+JST = timezone(timedelta(hours=9)) # 日本時間
+
+async def update_status_loop(bot):
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        now = datetime.now(JST)
+        hour = now.hour
+        base_name = "ゆーやけBot" # ここは自由に変えてね
+        
+        if 5 <= hour < 11: # 朝
+            nick, act = f"{base_name}（ねむねむ）", discord.Activity(type=discord.ActivityType.watching, name="ゆねっさむの歌声")
+        elif 11 <= hour < 18: # 昼
+            nick, act = f"{base_name}（お仕事中）", discord.Activity(type=discord.ActivityType.competing, name="大くじ大会")
+        else: # 夜
+            nick, act = f"{base_name}（残業）", discord.Activity(type=discord.ActivityType.watching, name="ゆねっさむの子守唄")
+
+        await bot.change_presence(status=discord.Status.online, activity=act)
+        for guild in bot.guilds:
+            try: await guild.me.edit(nick=nick)
+            except: continue
+        await asyncio.sleep(600) # 10分おきにチェック
 
 @bot.event
 async def on_ready():
@@ -112,6 +135,8 @@ async def on_message(message):
                         await send_log(bot, f"🔗 招待を無効化しました: {code} (場所: {message.guild.name})")
                 except: pass
     await bot.process_commands(message)
+
+self.loop.create_task(update_status_loop(self))
 
 if __name__ == "__main__":
     keep_alive()
