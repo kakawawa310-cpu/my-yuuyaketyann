@@ -41,13 +41,12 @@ def home(): return "Bot is alive!"
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 def keep_alive(): Thread(target=run, daemon=True).start()
 
-# --- 認証ボタンUI ---
-class VerifyView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
     @discord.ui.button(label="認証する", style=discord.ButtonStyle.green, custom_id="verify_btn")
     async def verify(self, interaction: discord.Interaction):
+        # --- 修正ポイント：まず「考え中」の合図を送る（これで3秒制限を回避） ---
+        await interaction.response.defer(ephemeral=True)
+
+        # IDリストの読み取り（ここで時間がかかる場合がある）
         watch_list = await get_watch_guilds(interaction.client)
         blacklisted_names = []
         
@@ -57,8 +56,8 @@ class VerifyView(discord.ui.View):
                 blacklisted_names.append(guild.name)
 
         if blacklisted_names:
-            # キックはせず、メッセージで通知して終了
-            await interaction.response.send_message(f"❌ 対象サーバー（{', '.join(blacklisted_names)}）に参加しているため認証できません。退出してから再度お試しください。", ephemeral=True)
+            # deferの後は send_message ではなく followup.send を使う
+            await interaction.followup.send(f"❌ 対象サーバー（{', '.join(blacklisted_names)}）に参加しているため認証できません。退出してから再度お試しください。", ephemeral=True)
             await send_log(interaction.client, f"⚠️ {interaction.user.mention} の認証をブロックしました（在籍: {', '.join(blacklisted_names)}）")
             return
 
@@ -66,13 +65,17 @@ class VerifyView(discord.ui.View):
         if role_id:
             role = interaction.guild.get_role(role_id)
             if role:
-                await interaction.user.add_roles(role)
-                await interaction.response.send_message("✅ 認証に成功しました！", ephemeral=True)
-                await send_log(interaction.client, f"✅ {interaction.user.mention} が認証を完了しました。")
+                try:
+                    await interaction.user.add_roles(role)
+                    await interaction.followup.send("✅ 認証に成功しました！", ephemeral=True)
+                    await send_log(interaction.client, f"✅ {interaction.user.mention} が認証を完了しました。")
+                except discord.Forbidden:
+                    await interaction.followup.send("❌ Botにロールを付与する権限がありません。Botのロール順位を上げてください。", ephemeral=True)
             else:
-                await interaction.response.send_message("⚠️ ロールが見つかりません。", ephemeral=True)
+                await interaction.followup.send("⚠️ ロールが見つかりません。", ephemeral=True)
         else:
-            await interaction.response.send_message("⚠️ 認証ロールが未設定です。", ephemeral=True)
+            await interaction.followup.send("⚠️ 認証ロールが未設定です。", ephemeral=True)
+
 
 async def send_log(bot, message):
     log_id = config_data.get("log_channel_id")
