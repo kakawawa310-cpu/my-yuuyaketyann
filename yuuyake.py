@@ -179,61 +179,8 @@ async def on_message(message):
                 print(f"招待削除エラー: {e}")
 
     # 以降に既存の処理（bot.process_commandsなど）を続けてください
-    await bot.process_commands(message)
-
-async def run_kuji(channel, user, guild):
-    if config_data["channel_id"] is None:
-        return await channel.send("⚠️ チャンネルが設定されていません。`/set_channel` を実行してください。")
-    if channel.id != config_data["channel_id"]:
-        return 
-
-    ranks = list(config_data["roles"].keys())
-    weights = [info["weight"] for info in config_data["roles"].values()]
+    await bot.process_commands(message) 
     
-    # 抽選
-    outcome = random.choices(ranks, weights=weights)[0]
-    res = config_data["roles"][outcome]
-    
-    # 表示の修正：res['text'] を指定
-    await channel.send(f"🎲 {user.mention}さんの結果...\n**{res['text']}**")
-
-    # ロール付与
-    if res["id"] is not None:
-        role = guild.get_role(res["id"])
-        if role:
-            try:
-                await user.add_roles(role)
-                await channel.send(f"✨ `{role.name}` ロールを付与しました！")
-            except discord.Forbidden:
-                await channel.send("❌ エラー: Botのロール順位をサーバー設定で一番上に上げてください。")
-
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return 
-    if message.content == "茶亭くじ":
-        await run_kuji(message.channel, message.author, message.guild)
-    await bot.process_commands(message)
-
-@bot.tree.command(name="set_channel", description="このチャンネルをくじ専用にします")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_channel(interaction: discord.Interaction):
-    config_data["channel_id"] = interaction.channel_id
-    save_config(config_data) # 保存
-    await interaction.response.send_message(f"✅ このチャンネルをくじ専用に設定しました！", ephemeral=True)
-
-@bot.tree.command(name="set_role", description="当たりの種類ごとにロールを設定します")
-@app_commands.choices(rank=[
-    app_commands.Choice(name="大当たり", value="大当たり"),
-    app_commands.Choice(name="中当たり", value="中当たり"),
-    app_commands.Choice(name="小当たり", value="小当たり"),
-])
-@app_commands.checks.has_permissions(administrator=True)
-async def set_role(interaction: discord.Interaction, rank: str, role: discord.Role):
-    config_data["roles"][rank]["id"] = role.id
-    save_config(config_data) # 保存
-    await interaction.response.send_message(f"✅ {rank}の付与ロールを `{role.name}` に設定しました！", ephemeral=True)
-
 # --- 実行部分 ---
 if __name__ == "__main__":
     keep_alive()
