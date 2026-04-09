@@ -109,7 +109,23 @@ async def add_ng(interaction: discord.Interaction, word: str):
         config.ng_words.append(word)
         await interaction.response.send_message(f"✅ 「{word}」を禁止ワードに追加しました。", ephemeral=True)
 
-# 最後に、ボットのツリーにこのグループを追加します
+# 1. グループを定義
+config_group = app_commands.Group(name="config", description="設定")
+
+# 2. 各サブコマンドを定義 (重複に注意！)
+@config_group.command(name="set_auth")
+async def set_auth(...):
+    # 中身
+
+@config_group.command(name="set_limit")
+async def set_limit(...):
+    # 中身
+
+@config_group.command(name="add_ng")
+async def add_ng(...):
+    # 中身
+
+# 3. 最後に 1 回だけツリーに追加
 bot.tree.add_command(config_group)
 
 @config_group.command(name="set_limit", description="アカウント作成制限（日数）を設定")
