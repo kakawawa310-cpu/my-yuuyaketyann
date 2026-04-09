@@ -114,15 +114,15 @@ config_group = app_commands.Group(name="config", description="設定")
 
 # 2. 各サブコマンドを定義 (重複に注意！)
 @config_group.command(name="set_auth")
-async def set_auth(...):
+async def set_auth(interaction: discord.Interaction, role: discord.Role, log_channel: discord.TextChannel):
     # 中身
 
 @config_group.command(name="set_limit")
-async def set_limit(...):
+async def set_limit(interaction: discord.Interaction, days: int):
     # 中身
 
 @config_group.command(name="add_ng")
-async def add_ng(...):
+async def add_ng(interaction: discord.Interaction, word: str):
     # 中身
 
 # 3. 最後に 1 回だけツリーに追加
