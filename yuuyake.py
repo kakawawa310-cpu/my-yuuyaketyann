@@ -86,12 +86,9 @@ class AuthView(discord.ui.View):
         await interaction.user.add_roles(role)
         await interaction.response.send_message("✅ 認証が完了しました！", ephemeral=True)
 
-# --- 2. 管理用設定コマンド（修正版） ---
-
-# まず、グループ自体を定義します
+# --- 管理用設定コマンドのグループ定義 ---
 config_group = app_commands.Group(name="config", description="荒らし対策の設定管理")
 
-# 各サブコマンドを定義
 @config_group.command(name="set_auth", description="認証ロールとログチャンネルを設定")
 async def set_auth(interaction: discord.Interaction, role: discord.Role, log_channel: discord.TextChannel):
     config.auth_role_id = role.id
@@ -108,6 +105,9 @@ async def add_ng(interaction: discord.Interaction, word: str):
     if word not in config.ng_words:
         config.ng_words.append(word)
         await interaction.response.send_message(f"✅ 「{word}」を禁止ワードに追加しました。", ephemeral=True)
+
+# 最後にグループをツリーに追加（これが必要！）
+bot.tree.add_command(config_group)
 
 # 1. グループを定義
 config_group = app_commands.Group(name="config", description="設定")
