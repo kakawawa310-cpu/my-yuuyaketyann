@@ -59,105 +59,138 @@ class MyBot(commands.Bot):
 
 bot = MyBot()
 
+# --- 1. 投票用UIクラス (締め切り対応版) ---
 class MultiPollView(discord.ui.View):
-    def __init__(self, options, anonymous, hide_results, allow_multiple, roles_dict=None):
+    def __init__(self, question, options, anonymous, hide_results, allow_multiple, roles_dict=None):
         super().__init__(timeout=None)
+        self.question = question
         self.options = options
         self.anonymous = anonymous
         self.hide_results = hide_results
         self.allow_multiple = allow_multiple
-        self.roles_dict = roles_dict or {} # {選択肢名: ロールID}
-        self.votes = {opt: [] for opt in options} # {選択肢名: [ユーザーID, ...]}
+        self.roles_dict = roles_dict or {}
+        self.votes = {opt: [] for opt in options}
 
     async def cast_vote(self, interaction: discord.Interaction, option: str):
         user_id = interaction.user.id
         role_id = self.roles_dict.get(option)
         
-        # --- 1. 多重投票が禁止(False)の場合の処理 ---
+        # 複数投票不可の場合の上書き・取り消し処理
         if not self.allow_multiple:
-            # 既に同じものに投票済みなら「取り消し」
             if user_id in self.votes[option]:
                 self.votes[option].remove(user_id)
                 msg = f"「{option}」への投票を取り消しました。"
-                # ロールも剥奪
-                if role_id:
-                    role = interaction.guild.get_role(role_id)
-                    if role: await interaction.user.remove_roles(role)
+                if role_id: await interaction.user.remove_roles(interaction.guild.get_role(role_id))
             else:
-                # 他の選択肢からユーザーを削除（上書き）
                 for opt, users in self.votes.items():
                     if user_id in users:
                         users.remove(user_id)
-                        # 前のロールを剥奪（必要なら）
-                        prev_role_id = self.roles_dict.get(opt)
-                        if prev_role_id:
-                            prev_role = interaction.guild.get_role(prev_role_id)
-                            if prev_role: await interaction.user.remove_roles(prev_role)
-                
+                        prev_role = self.roles_dict.get(opt)
+                        if prev_role: await interaction.user.remove_roles(interaction.guild.get_role(prev_role))
                 self.votes[option].append(user_id)
-                msg = f"「{option}」に投票（上書き）しました！"
-                if role_id:
-                    role = interaction.guild.get_role(role_id)
-                    if role: await interaction.user.add_roles(role)
-
-        # --- 2. 多重投票が許可(True)の場合の処理 ---
+                msg = f"「{option}」に投票しました（他は取消）。"
+                if role_id: await interaction.user.add_roles(interaction.guild.get_role(role_id))
         else:
+            # 複数投票可の場合
             if user_id in self.votes[option]:
                 self.votes[option].remove(user_id)
                 msg = f"「{option}」への投票を取り消しました。"
-                if role_id:
-                    role = interaction.guild.get_role(role_id)
-                    if role: await interaction.user.remove_roles(role)
+                if role_id: await interaction.user.remove_roles(interaction.guild.get_role(role_id))
             else:
                 self.votes[option].append(user_id)
                 msg = f"「{option}」に投票しました！"
-                if role_id:
-                    role = interaction.guild.get_role(role_id)
-                    if role: await interaction.user.add_roles(role)
+                if role_id: await interaction.user.add_roles(interaction.guild.get_role(role_id))
 
-        # レスポンス送信
         await interaction.response.send_message(msg, ephemeral=True)
-        
-        # 画面更新（非表示設定でない場合）
         if not self.hide_results:
             await interaction.message.edit(embed=self.make_embed())
 
-# --- コマンド登録部分の引数追加 ---
-@bot.tree.command(name="advanced_poll", description="多機能投票を作成")
+    def make_embed(self, closed=False):
+        status = "【投票終了】" if closed else "【投票中】"
+        embed = discord.Embed(title=f"{status} {self.question}", color=discord.Color.blue())
+        for opt, users in self.votes.items():
+            count = len(users)
+            val = f"{count} 票" if not self.hide_results or closed else "🔒 非表示"
+            if not self.anonymous and (not self.hide_results or closed):
+                names = [f"<@{uid}>" for uid in users]
+                val += f"\n({', '.join(names)})" if names else ""
+            embed.add_field(name=opt, value=val, inline=False)
+        return embed
+
+    async def end_poll(self, channel):
+        # グラフ作成処理
+        labels = list(self.votes.keys())
+        sizes = [len(v) for v in self.votes.values()]
+        
+        plt.figure(figsize=(6, 4))
+        plt.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=140)
+        plt.title(self.question)
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        file = discord.File(buf, filename="result.png")
+        
+        # 既存メッセージの無効化と結果送信
+        self.stop() # ボタンを押せなくする
+        await channel.send(f"⏰ **{self.question}** の投票が締め切られました！", embed=self.make_embed(closed=True), file=file)
+
+# --- 2. コマンド部分 ---
+@bot.tree.command(name="advanced_poll", description="日時指定の締め切りが可能な多機能投票")
 @app_commands.describe(
-    allow_multiple="複数選択を許可するか (True=複数OK, False=1つのみで上書き)"
+    deadline_date="日付 (例: 2024-05-01)",
+    deadline_time="時間 (例: 20:00)",
+    allow_multiple="複数選択を許可するか"
 )
 async def advanced_poll(
     interaction: discord.Interaction, 
     question: str, 
     options: str, 
+    deadline_date: str, 
+    deadline_time: str,
     anonymous: bool = True, 
     hide_results: bool = False,
-    allow_multiple: bool = False, # 追加
+    allow_multiple: bool = False,
     role_ids: str = None
 ):
+    # 日時の解析
+    try:
+        dt_str = f"{deadline_date} {deadline_time}"
+        deadline_dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+        now = datetime.datetime.now()
+        
+        wait_seconds = (deadline_dt - now).total_seconds()
+        if wait_seconds < 0:
+            await interaction.response.send_message("過去の日時は指定できません。", ephemeral=True)
+            return
+    except ValueError:
+        await interaction.response.send_message("日時の形式が正しくありません。(例: 2024-05-01 と 20:00)", ephemeral=True)
+        return
+
     opt_list = [o.strip() for o in options.split(",")]
-    
-    # ロールIDの辞書作成
     r_ids = [int(r.strip()) for r in role_ids.split(",")] if role_ids else []
     roles_dict = {opt_list[i]: r_ids[i] for i in range(min(len(opt_list), len(r_ids)))}
 
-    view = MultiPollView(opt_list, anonymous, hide_results, allow_multiple, roles_dict)
+    view = MultiPollView(question, opt_list, anonymous, hide_results, allow_multiple, roles_dict)
     
-    # ボタン生成 (各ボタンにコールバックを設定)
     for opt in opt_list:
         button = discord.ui.Button(label=opt, style=discord.ButtonStyle.primary)
-        # 選択肢を引数に渡すために lambda や partial を使わず直接関数を定義
-        async def make_callback(o=opt):
-            async def callback(inter):
-                await view.cast_vote(inter, o)
-            return callback
-        
-        button.callback = await make_callback()
+        async def make_cb(o=opt):
+            async def cb(it): await view.cast_vote(it, o)
+            return cb
+        button.callback = await make_cb()
         view.add_item(button)
 
-    await interaction.response.send_message(f"**【投票】{question}**", embed=view.make_embed(), view=view)
+    await interaction.response.send_message(
+        f"⏳ 締め切り: {deadline_date} {deadline_time}\n**【投票】{question}**", 
+        embed=view.make_embed(), 
+        view=view
+    )
 
+    # 締め切りまで待機して自動終了
+    await asyncio.sleep(wait_seconds)
+    await view.end_poll(interaction.channel)
+    
 JST = timezone(timedelta(hours=9)) # 日本時間
 
 async def update_status_loop(bot):
