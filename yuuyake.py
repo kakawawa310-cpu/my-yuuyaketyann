@@ -58,6 +58,110 @@ class MyBot(commands.Bot):
         await self.tree.sync()
 
 bot = MyBot()
+
+# --- 1. 投票用UIクラス (ボタンと集計) ---
+class MultiPollView(discord.ui.View):
+    def __init__(self, options, anonymous, hide_results, roles_list=None):
+        super().__init__(timeout=None)
+        self.options = options
+        self.anonymous = anonymous
+        self.hide_results = hide_results
+        self.roles_list = roles_list or []
+        self.votes = {opt: [] for opt in options} # 誰が投票したか保持
+
+    async def cast_vote(self, interaction: discord.Interaction, option: str, role_id: Optional[int]):
+        # 既にどこかに投票していたら削除（1人1票）
+        for users in self.votes.values():
+            if interaction.user.id in users:
+                users.remove(interaction.user.id)
+        
+        self.votes[option].append(interaction.user.id)
+
+        # ロール付与 (指定があれば)
+        status_msg = f"「{option}」に投票しました！"
+        if role_id:
+            role = interaction.guild.get_role(role_id)
+            if role:
+                await interaction.user.add_roles(role)
+                status_msg += f"\n✅ ロール {role.name} を付与しました。"
+
+        # 結果を隠す設定なら自分だけに通知
+        await interaction.response.send_message(status_msg, ephemeral=True)
+
+        # 結果を表示する設定ならEmbedを更新
+        if not self.hide_results:
+            await interaction.message.edit(embed=self.make_embed())
+
+    def make_embed(self):
+        embed = discord.Embed(title="📊 多機能投票", color=discord.Color.green())
+        for opt, users in self.votes.items():
+            count = len(users)
+            display_val = "🔒 非表示" if self.hide_results else f"{count} 票"
+            # 匿名じゃない場合は名前を出す
+            if not self.anonymous and not self.hide_results:
+                names = [f"<@{uid}>" for uid in users]
+                display_val += f"\n({', '.join(names)})" if names else ""
+            embed.add_field(name=opt, value=display_val, inline=False)
+        return embed
+
+# --- 2. スラッシュコマンド部分 ---
+@bot.tree.command(name="advanced_poll", description="詳細設定が可能な投票を作成します")
+@app_commands.describe(
+    question="質問内容",
+    options="選択肢（カンマ区切り 例: A,B,C）",
+    anonymous="匿名にするか (True/False)",
+    hide_results="途中経過を隠すか (True/False)",
+    show_chart="終了時に円グラフを出すか (True/False)",
+    role_ids="付与するロールID（カンマ区切り、選択肢と同数入力）"
+)
+async def advanced_poll(
+    interaction: discord.Interaction, 
+    question: str, 
+    options: str, 
+    anonymous: bool = True, 
+    hide_results: bool = False,
+    show_chart: bool = False,
+    role_ids: str = None
+):
+    opt_list = [o.strip() for o in options.split(",")]
+    role_list = [int(r.strip()) for r in role_ids.split(",")] if role_ids else []
+
+    view = MultiPollView(opt_list, anonymous, hide_results, role_list)
+    
+    # ボタンを動的に追加
+    for i, opt in enumerate(opt_list):
+        role_id = role_list[i] if i < len(role_list) else None
+        button = discord.ui.Button(label=opt, custom_id=f"poll_{opt}")
+        
+        # クロージャで引数を固定してコールバック設定
+        async def callback(inter, o=opt, r=role_id):
+            await view.cast_vote(inter, o, r)
+            
+        button.callback = callback
+        view.add_item(button)
+
+    # 終了ボタン（管理者のみ）
+    if show_chart:
+        end_button = discord.ui.Button(label="投票終了・グラフ表示", style=discord.ButtonStyle.danger)
+        async def end_callback(inter):
+            # グラフ作成
+            labels = view.votes.keys()
+            sizes = [len(v) for v in view.votes.values()]
+            plt.figure(figsize=(6, 4))
+            plt.pie(sizes, labels=labels, autopct='%1.1f%%')
+            plt.title(question)
+            
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png')
+            buf.seek(0)
+            file = discord.File(buf, filename="chart.png")
+            await inter.response.send_message("投票結果のグラフです！", file=file)
+            view.stop()
+
+        end_button.callback = end_callback
+        view.add_item(end_button)
+
+    await interaction.response.send_message(f"**【投票】{question}**", embed=view.make_embed(), view=view)
 JST = timezone(timedelta(hours=9)) # 日本時間
 
 async def update_status_loop(bot):
