@@ -86,17 +86,31 @@ class AuthView(discord.ui.View):
         await interaction.user.add_roles(role)
         await interaction.response.send_message("✅ 認証が完了しました！", ephemeral=True)
 
-# --- 2. 管理用設定コマンド ---
-@bot.tree.group(name="config", description="荒らし対策の設定管理")
-@app_commands.checks.has_permissions(administrator=True)
-async def config_group(interaction: discord.Interaction):
-    pass
+# --- 2. 管理用設定コマンド（修正版） ---
 
+# まず、グループ自体を定義します
+config_group = app_commands.Group(name="config", description="荒らし対策の設定管理")
+
+# 各サブコマンドを定義
 @config_group.command(name="set_auth", description="認証ロールとログチャンネルを設定")
 async def set_auth(interaction: discord.Interaction, role: discord.Role, log_channel: discord.TextChannel):
     config.auth_role_id = role.id
     config.log_channel_id = log_channel.id
     await interaction.response.send_message(f"✅ 設定更新:\nロール: {role.mention}\nログ: {log_channel.mention}", ephemeral=True)
+
+@config_group.command(name="set_limit", description="アカウント作成制限（日数）を設定")
+async def set_limit(interaction: discord.Interaction, days: int):
+    config.account_age_limit = days
+    await interaction.response.send_message(f"✅ 作成制限を **{days}日** に設定しました。", ephemeral=True)
+
+@config_group.command(name="add_ng", description="禁止ワードを追加")
+async def add_ng(interaction: discord.Interaction, word: str):
+    if word not in config.ng_words:
+        config.ng_words.append(word)
+        await interaction.response.send_message(f"✅ 「{word}」を禁止ワードに追加しました。", ephemeral=True)
+
+# 最後に、ボットのツリーにこのグループを追加します
+bot.tree.add_command(config_group)
 
 @config_group.command(name="set_limit", description="アカウント作成制限（日数）を設定")
 async def set_limit(interaction: discord.Interaction, days: int):
