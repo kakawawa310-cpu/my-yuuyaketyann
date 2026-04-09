@@ -59,14 +59,15 @@ class MyBot(commands.Bot):
 
 bot = MyBot()
 
-# --- 設定項目 ---
-AUTH_ROLE_ID = 123456789012345678  # 認証後に付与するロールID
-LOG_CHANNEL_ID = 123456789012345678 # ログを出力するチャンネルID
-NG_WORDS = ["荒らし", "死ね"]        # 禁止ワードのリスト
-ACCOUNT_AGE_LIMIT = 7             # 入室を許可する最小のアカウント経過日数（日）
+# --- 設定を保持する変数（初期値） ---
+class BotConfig:
+    def __init__(self):
+        self.auth_role_id = None
+        self.log_channel_id = None
+        self.ng_words = ["荒らし", "死ね"]
+        self.account_age_limit = 7
 
-# 連投対策用のキャッシュ
-user_message_count = {} # {user_id: [timestamp, ...]}
+config = BotConfig()
 
 # --- 1. 認証ボタンのView ---
 class AuthView(discord.ui.View):
@@ -75,77 +76,77 @@ class AuthView(discord.ui.View):
 
     @discord.ui.button(label="認証して参加する", style=discord.ButtonStyle.green, custom_id="auth_button")
     async def auth_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        role = interaction.guild.get_role(AUTH_ROLE_ID)
+        if not config.auth_role_id:
+            return await interaction.response.send_message("設定エラー: 認証ロールが設定されていません。", ephemeral=True)
+            
+        role = interaction.guild.get_role(config.auth_role_id)
         if role in interaction.user.roles:
             return await interaction.response.send_message("既に認証済みです！", ephemeral=True)
         
         await interaction.user.add_roles(role)
-        await interaction.response.send_message("✅ 認証が完了しました！サーバーをお楽しみください。", ephemeral=True)
+        await interaction.response.send_message("✅ 認証が完了しました！", ephemeral=True)
 
-# --- 2. イベント処理（スパム・NGワード・作成日制限） ---
+# --- 2. 管理用設定コマンド ---
+@bot.tree.group(name="config", description="荒らし対策の設定管理")
+@app_commands.checks.has_permissions(administrator=True)
+async def config_group(interaction: discord.Interaction):
+    pass
 
+@config_group.command(name="set_auth", description="認証ロールとログチャンネルを設定")
+async def set_auth(interaction: discord.Interaction, role: discord.Role, log_channel: discord.TextChannel):
+    config.auth_role_id = role.id
+    config.log_channel_id = log_channel.id
+    await interaction.response.send_message(f"✅ 設定更新:\nロール: {role.mention}\nログ: {log_channel.mention}", ephemeral=True)
+
+@config_group.command(name="set_limit", description="アカウント作成制限（日数）を設定")
+async def set_limit(interaction: discord.Interaction, days: int):
+    config.account_age_limit = days
+    await interaction.response.send_message(f"✅ 作成制限を **{days}日** に設定しました。", ephemeral=True)
+
+@config_group.command(name="add_ng", description="禁止ワードを追加")
+async def add_ng(interaction: discord.Interaction, word: str):
+    if word not in config.ng_words:
+        config.ng_words.append(word)
+        await interaction.response.send_message(f"✅ 「{word}」を禁止ワードに追加しました。", ephemeral=True)
+
+# --- 3. イベント処理 ---
 @bot.event
 async def on_member_join(member):
-    # 【機能4】アカウント作成日の制限
     now = datetime.datetime.now(datetime.timezone.utc)
     account_age = (now - member.created_at).days
     
-    if account_age < ACCOUNT_AGE_LIMIT:
+    if account_age < config.account_age_limit:
         try:
-            await member.send(f"申し訳ありません。アカウント作成から{ACCOUNT_AGE_LIMIT}日未満の方は入室制限されています。")
-            await member.kick(reason=f"アカウント作成日制限 ({account_age}日)")
-        except:
-            pass
+            await member.send(f"入室制限: アカウント作成から{config.account_age_limit}日経過してから再度お越しください。")
+            await member.kick(reason=f"作成日制限 ({account_age}日)")
+        except: pass
 
 @bot.event
 async def on_message(message):
     if message.author.bot: return
 
-    # 【機能3】NGワード・リンク削除
-    content = message.content
-    is_spam_link = "discord.gg/" in content or "://discord.com" in content
-    has_ng_word = any(word in content for word in NG_WORDS)
+    # NGワード/リンク検知
+    is_invite = "discord.gg/" in message.content or "://discord.com" in message.content
+    has_ng = any(word in message.content for word in config.ng_words)
 
-    if is_spam_link or has_ng_word:
+    if is_invite or has_ng:
         await message.delete()
-        log_ch = bot.get_channel(LOG_CHANNEL_ID)
-        await log_ch.send(f"⚠️ **削除通知**: {message.author.mention} の不適切な投稿を削除しました。")
-        return # 削除したら連投チェックはスキップ
+        if config.log_channel_id:
+            log_ch = bot.get_channel(config.log_channel_id)
+            if log_ch: await log_ch.send(f"🛡️ **削除ログ**: {message.author.mention} が禁止内容を送信しました。")
+        return
 
-    # 【機能2】連投制限（5秒以内に5件）
-    user_id = message.author.id
-    now = time.time()
-    
-    if user_id not in user_message_count:
-        user_message_count[user_id] = []
-    
-    # 5秒以上前の履歴を削除
-    user_message_count[user_id] = [t for t in user_message_count[user_id] if now - t < 5]
-    user_message_count[user_id].append(now)
-
-    if len(user_message_count[user_id]) > 5:
-        await message.channel.send(f"{message.author.mention} 連投を控えてください！", delete_after=5)
-        # 必要に応じてここでミュート処理などを追加可能
-    
     await bot.process_commands(message)
 
-# --- 3. 認証ボタン設置コマンド ---
-@bot.tree.command(name="setup_auth", description="認証ボタンをこのチャンネルに設置します")
+# --- 設置コマンド ---
+@bot.tree.command(name="setup_auth", description="認証パネルを設置")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_auth(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🛡️ 認証システム",
-        description="下のボタンを押すとサーバーに参加できます。\n※荒らし対策のため、アカウント作成直後の場合は参加できません。",
-        color=discord.Color.blue()
+    await interaction.channel.send(
+        embed=discord.Embed(title="🛡️ 参加認証", description="下のボタンを押してください。", color=discord.Color.blue()),
+        view=AuthView()
     )
     await interaction.response.send_message("設置完了", ephemeral=True)
-    await interaction.channel.send(embed=embed, view=AuthView())
-
-# --- 起動時にViewを登録（ボタンを永続化） ---
-@bot.event
-async def on_ready():
-    bot.add_view(AuthView()) # 再起動してもボタンが動くようにする
-    print(f"Logged in as {bot.user.name}")
 
 # --- 投票管理クラス ---
 class MultiPollView(discord.ui.View):
