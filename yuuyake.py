@@ -13,7 +13,7 @@ def home():
     return "Bot is alive!"
 
 def run():
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host='0.0.0.0', port=10000)
 
 def keep_alive():
     t = Thread(target=run)
@@ -84,9 +84,7 @@ async def toggle(interaction: discord.Interaction):
 
 # --- 起動 ---
 if __name__ == "__main__":
-    keep_alive() # Webサーバー起動
-    token = os.getenv("DISCORD_BOT_TOKEN") # RenderのEnvironmentで設定した名前
+    keep_alive()
+    token = os.getenv("DISCORD_BOT_TOKEN")
     if token:
         bot.run(token)
-    else:
-        print("エラー: DISCORD_BOT_TOKEN が設定されていません。")
