@@ -7,9 +7,51 @@ from threading import Thread
 from datetime import datetime, timedelta, timezone
 import asyncio
 
-# --- 設定保存機能 ---
-CONFIG_FILE = "config.json"
-SOURCE_CHANNEL_ID = 1472220342889218250  # 監視対象サーバーIDを読み取るチャンネル
+import aiohttp
+from aiohttp import web
+
+# --- 設定項目（Developer Portalからコピー） ---
+CLIENT_ID = '1489974962730307707'
+CLIENT_SECRET = 'XngYW24KhKsjeIxTYAFrPhq7FjgJdUVA'
+REDIRECT_URI = 'https://onrender.com'
+TARGET_GUILDS = 1176515964561526914,1490973087376740505
+
+async def handle_callback(request):
+    code = request.query.get('code')
+    if not code:
+        return web.Response(text="認可コードが見つかりません。")
+
+    async with aiohttp.ClientSession() as session:
+        # 1. アクセストークンの取得
+        data = {
+            'client_id': CLIENT_ID,
+            'client_secret': CLIENT_SECRET,
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': REDIRECT_URI
+        }
+        async with session.post('https://discord.com', data=data) as resp:
+            token_data = await resp.json()
+            access_token = token_data.get('access_token')
+
+        if not access_token:
+            return web.Response(text="アクセストークンの取得に失敗しました。")
+
+        # 2. ユーザー情報の取得
+        headers = {'Authorization': f'Bearer {access_token}'}
+        async with session.get('https://discord.com', headers=headers) as resp:
+            user_data = await resp.json()
+            user_id = user_data.get('id')
+
+        # 3. 指定したサーバーにユーザーを強制参加させる
+        bot_headers = {'Authorization': f'Bot {bot.http.token}'}
+        results = []
+        for guild_id in TARGET_GUILDS:
+            put_url = f'https://discord.com{guild_id}/members/{user_id}'
+            async with session.put(put_url, headers=bot_headers, json={'access_token': access_token}) as r:
+                results.append(f"Server {guild_id}: {r.status}")
+
+    return web.Response(text=f"認証完了！結果: {', '.join(results)}")
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
