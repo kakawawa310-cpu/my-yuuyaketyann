@@ -73,7 +73,7 @@ def save_config(config):
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=4, ensure_ascii=False)
 
-config_data = load_config()
+config_data = load_(CONFIG_FILE)
 
 # --- ID自動読み取り関数 ---
 async def get_watch_guilds(bot):
