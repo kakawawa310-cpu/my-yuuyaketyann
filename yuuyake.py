@@ -82,9 +82,12 @@ async def toggle(interaction: discord.Interaction):
     status = "有効" if AUTO_DELETE_ENABLED else "無効"
     await interaction.response.send_message(f"フィルタリングを **{status}** にしました。")
 
-# --- 起動 ---
+# 一番最後の部分をこう書き換えてみてください
 if __name__ == "__main__":
     keep_alive()
     token = os.getenv("DISCORD_BOT_TOKEN")
+    print(f"Token found: {token is not None}") # トークンが読み込めているかログに出す
     if token:
         bot.run(token)
+    else:
+        print("エラー: トークンが空っぽです！Renderの設定を確認してください。")
