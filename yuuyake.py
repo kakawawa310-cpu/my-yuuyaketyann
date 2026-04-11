@@ -5,19 +5,19 @@ import os
 from flask import Flask
 from threading import Thread
 
-# --- Flaskでダミーサーバーを立てる (RenderのPort監視対策) ---
+# Flaskで簡易Webサーバーを起動し、スレッドで実行するコード
 app = Flask('')
+
 @app.route('/')
 def home():
-    return "Bot is running!"
+    return "I'm alive!" # 応答内容は任意
 
 def run():
-    app.run(host='0.0.0.0', port=10000)
+  app.run(host='0.0.0.0',port=8080)
 
 def keep_alive():
     t = Thread(target=run)
     t.start()
-
 # --- Discord Botの設定 ---
 intents = discord.Intents.default()
 intents.message_content = True
