@@ -4,9 +4,6 @@ from discord.ext import commands
 import re
 import os
 
-# --- 設定 ---
-MONITOR_CHANNEL_ID = int(os.getenv("1472220342889218250"))
-
 class MyBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -26,7 +23,7 @@ INVITE_REGEX = r"(discord\.(gg|io|me|li)|discordapp\.com\/invite)\/([\w\-]+)"
 
 # 起動時にチャンネルからIDを読み込む
 async def update_blacklist():
-    channel = bot.get_channel(MONITOR_CHANNEL_ID)
+    channel = bot.get_channel(1472220342889218250)
     if channel:
         BLACKLIST_GUILD_IDS.clear()
         async for message in channel.history(limit=100):
@@ -47,7 +44,7 @@ async def on_message(message):
         return
 
     # ID登録チャンネルでの処理
-    if message.channel.id == MONITOR_CHANNEL_ID and message.content.isdigit():
+    if message.channel.id == 1472220342889218250 and message.content.isdigit():
         BLACKLIST_GUILD_IDS.add(int(message.content))
         return
 
@@ -77,4 +74,3 @@ async def toggle(interaction: discord.Interaction):
 # 実行
 keep_alive()
 bot.run(TOKEN)
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")
