@@ -100,13 +100,6 @@ class MyBot(commands.Bot):
 
 bot = MyBot()
 
-@bot.event
-async def on_ready():
-    # --- ここに追加 ---
-    await start_webapp() 
-    # ----------------
-    print(f'Logged in as {bot.user.name}')
-
 # --- 投票管理クラス ---
 class MultiPollView(discord.ui.View):
     def __init__(self, question, options, anonymous, hide_results, allow_multiple, roles_dict=None):
