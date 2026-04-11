@@ -9,15 +9,6 @@ import asyncio
 import aiohttp
 from aiohttp import web
 
-# --- このかたまりを、関数の外（ファイルの上の方など）に置く ---
-async def start_webapp():
-    server = web.Application()
-    server.add_routes([web.get('/callback', handle_callback)])
-    runner = web.AppRunner(server)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8080) 
-    await site.start()
-
 # --- 設定項目（Developer Portalからコピー） ---
 CLIENT_ID = '1489974962730307707'
 CLIENT_SECRET = 'XngYW24KhKsjeIxTYAFrPhq7FjgJdUVA'
