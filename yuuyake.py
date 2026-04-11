@@ -3,9 +3,23 @@ from discord import app_commands
 from discord.ext import commands
 import re
 import os
-from keep_alive()
-import keep_alive()
+from flask import Flask
+from threading import Thread
 
+# --- Render対策: Webサーバーを同じファイル内に書く ---
+app = Flask('')
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# --- Botのメイン処理 ---
 class MyBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -13,6 +27,7 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
+        # スラッシュコマンドを同期
         await self.tree.sync()
         print("Slash commands synced!")
 
@@ -21,9 +36,10 @@ bot = MyBot()
 AUTO_DELETE_ENABLED = True
 BLACKLIST_GUILD_IDS = set()
 INVITE_REGEX = r"(discord\.(gg|io|me|li)|discordapp\.com\/invite)\/([\w\-]+)"
+CHANNEL_ID = 1472220342889218250 # 指定されたチャンネルID
 
 async def update_blacklist():
-    channel = bot.get_channel(1472220342889218250)
+    channel = bot.get_channel(CHANNEL_ID)
     if channel:
         BLACKLIST_GUILD_IDS.clear()
         async for message in channel.history(limit=100):
@@ -42,7 +58,7 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    if message.channel.id == 1472220342889218250 and message.content.isdigit():
+    if message.channel.id == CHANNEL_ID and message.content.isdigit():
         BLACKLIST_GUILD_IDS.add(int(message.content))
         return
 
@@ -66,6 +82,11 @@ async def toggle(interaction: discord.Interaction):
     status = "有効" if AUTO_DELETE_ENABLED else "無効"
     await interaction.response.send_message(f"フィルタリングを **{status}** にしました。")
 
-# --- 実行部分 ---
-keep_alive() # ← これを戻す
-bot.run(os.getenv("DISCORD_BOT_TOKEN")) # ← これを追加
+# --- 起動 ---
+if __name__ == "__main__":
+    keep_alive() # Webサーバー起動
+    token = os.getenv("DISCORD_BOT_TOKEN") # RenderのEnvironmentで設定した名前
+    if token:
+        bot.run(token)
+    else:
+        print("エラー: DISCORD_BOT_TOKEN が設定されていません。")
