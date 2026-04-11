@@ -1,274 +1,86 @@
 import discord
-from discord import app_commands
 from discord.ext import commands
-import os, json, re, asyncio
+import re
+import os
 from flask import Flask
 from threading import Thread
-from datetime import datetime, timedelta, timezone
-import asyncio
 
-# --- ID自動読み取り関数 ---
-async def get_watch_guilds(bot):
-    channel = bot.get_channel(SOURCE_CHANNEL_ID)
-    if not channel: return []
-    guild_ids = []
-    async for message in channel.history(limit=100):
-        found = re.findall(r'\d{17,20}', message.content)
-        guild_ids.extend([int(i) for i in found])
-    return list(set(guild_ids))
-
-# --- Render用Webサーバー ---
+# --- Flaskでダミーサーバーを立てる (RenderのPort監視対策) ---
 app = Flask('')
 @app.route('/')
-def home(): return "Bot is alive!"
-def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
-def keep_alive(): Thread(target=run, daemon=True).start()
+def home():
+    return "Bot is running!"
 
-async def send_log(bot, message):
-    log_id = config_data.get("log_channel_id")
-    if log_id:
-        channel = bot.get_channel(log_id)
-        if channel: await channel.send(message)
+def run():
+    app.run(host='0.0.0.0', port=8080)
 
-# --- Bot本体 ---
-class MyBot(commands.Bot):
-    def __init__(self):
-        # メッセージ削除のために全てのIntentsを有効化
-        super().__init__(command_prefix="!", intents=discord.Intents.all())
-    async def setup_hook(self):
-        self.loop.create_task(update_status_loop(self))
-        await self.tree.sync()
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
 
-bot = MyBot()
+# --- Discord Botの設定 ---
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 投票管理クラス ---
-class MultiPollView(discord.ui.View):
-    def __init__(self, question, options, anonymous, hide_results, allow_multiple, roles_dict=None):
-        super().__init__(timeout=None) # タイムアウトをなしに設定
-        self.question = question
-        self.options = options
-        self.anonymous = anonymous
-        self.hide_results = hide_results
-        self.allow_multiple = allow_multiple
-        self.roles_dict = roles_dict or {}
-        self.votes = {opt: [] for opt in options}
-        self.is_closed = False
+# 環境変数から取得（RenderのDashboardで設定してください）
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+MONITOR_CHANNEL_ID = int(os.getenv("MONITOR_CHANNEL_ID", "0"))
 
-    def make_embed(self, closed=False):
-        status = "【投票終了】" if closed else "【投票受付中】"
-        color = discord.Color.red() if closed else discord.Color.blue()
-        embed = discord.Embed(title=f"{status} {self.question}", color=color)
-        
-        for opt, users in self.votes.items():
-            count = len(users)
-            # 投票中かつ非表示設定なら隠す。終了後は必ず表示。
-            val = f"{count} 票" if not self.hide_results or closed else "🔒 集計中..."
-            
-            # 匿名じゃない場合はユーザー名を表示
-            if not self.anonymous and (not self.hide_results or closed):
-                names = [f"<@{uid}>" for uid in users]
-                val += f"\n({', '.join(names)})" if names else ""
-            
-            embed.add_field(name=opt, value=val, inline=False)
-        return embed
+# メモリ上に保持（再起動でリセットされますが、起動時にチャンネルから再取得します）
+AUTO_DELETE_ENABLED = True
+BLACKLIST_GUILD_IDS = set()
 
-    async def cast_vote(self, interaction: discord.Interaction, option: str):
-        if self.is_closed: return
-        user_id = interaction.user.id
-        role_id = self.roles_dict.get(option)
-        msg = ""
+INVITE_REGEX = r"(discord\.(gg|io|me|li)|discordapp\.com\/invite)\/([\w\-]+)"
 
-        # 既存の投票を確認
-        already_voted = user_id in self.votes[option]
-
-        if not self.allow_multiple: # 1人1票（上書きモード）
-            if already_voted:
-                self.votes[option].remove(user_id)
-                msg = f"❌ 「{option}」への投票を取り消しました。"
-                if role_id: await interaction.user.remove_roles(interaction.guild.get_role(role_id))
-            else:
-                # 他の選択肢から削除
-                for opt, users in self.votes.items():
-                    if user_id in users:
-                        users.remove(user_id)
-                        old_role = self.roles_dict.get(opt)
-                        if old_role: await interaction.user.remove_roles(interaction.guild.get_role(old_role))
-                
-                self.votes[option].append(user_id)
-                msg = f"✅ 「{option}」に投票しました（前の投票は上書きされました）。"
-                if role_id: await interaction.user.add_roles(interaction.guild.get_role(role_id))
-        else: # 複数投票可
-            if already_voted:
-                self.votes[option].remove(user_id)
-                msg = f"❌ 「{option}」への投票を取り消しました。"
-                if role_id: await interaction.user.remove_roles(interaction.guild.get_role(role_id))
-            else:
-                self.votes[option].append(user_id)
-                msg = f"✅ 「{option}」に投票しました！"
-                if role_id: await interaction.user.add_roles(interaction.guild.get_role(role_id))
-
-        await interaction.response.send_message(msg, ephemeral=True)
-        if not self.hide_results: # 結果表示設定ならメインメッセージを更新
-            await interaction.message.edit(embed=self.make_embed())
-
-    async def end_poll(self, channel):
-        self.is_closed = True
-        self.stop() # ボタン入力を停止
-        
-        # 円グラフ作成
-        labels = list(self.votes.keys())
-        sizes = [len(v) for v in self.votes.values()]
-        
-        # 票が0の場合はグラフが崩れるので対策
-        if sum(sizes) == 0:
-            file = None
-        else:
-            plt.figure(figsize=(6, 4))
-            plt.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=140)
-            plt.title(self.question)
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png')
-            buf.seek(0)
-            file = discord.File(buf, filename="result.png")
-
-        await channel.send(f"⏰ **投票終了**\n「{self.question}」の集計が終わりました！", embed=self.make_embed(closed=True), file=file)
-
-# --- スラッシュコマンドの実装 ---
-@bot.tree.command(name="poll_pro", description="日時指定・ロール付与対応の高度な投票")
-@app_commands.describe(
-    question="質問したい内容",
-    options="選択肢（カンマ区切り。例: りんご,ばなな,みかん）",
-    deadline_date="終了日 (例: 2024-12-31)",
-    deadline_time="終了時間 (例: 23:59)",
-    anonymous="誰が投票したか隠すか",
-    hide_results="投票中に途中経過を隠すか",
-    allow_multiple="複数選択を許可するか",
-    role_ids="付与するロールID（カンマ区切り、選択肢の数と合わせてください）"
-)
-async def poll_pro(
-    interaction: discord.Interaction, 
-    question: str, 
-    options: str, 
-    deadline_date: str, 
-    deadline_time: str,
-    anonymous: bool = True, 
-    hide_results: bool = False,
-    allow_multiple: bool = False,
-    role_ids: str = None
-):
-    # 日時の検証
-    try:
-        target_dt = datetime.datetime.strptime(f"{deadline_date} {deadline_time}", "%Y-%m-%d %H:%M")
-        wait_time = (target_dt - datetime.datetime.now()).total_seconds()
-        if wait_time < 0:
-            return await interaction.response.send_message("過去の日時は設定できません！", ephemeral=True)
-    except:
-        return await interaction.response.send_message("日時の書き方が違います（例: 2024-05-01 20:00）", ephemeral=True)
-
-    opt_list = [o.strip() for o in options.split(",")]
-    r_list = [int(r.strip()) for r in role_ids.split(",")] if role_ids else []
-    r_dict = {opt_list[i]: r_list[i] for i in range(min(len(opt_list), len(r_list)))}
-
-    view = MultiPollView(question, opt_list, anonymous, hide_results, allow_multiple, r_dict)
-
-    # ボタンを動的にセットアップ
-    for opt in opt_list:
-        btn = discord.ui.Button(label=opt, style=discord.ButtonStyle.secondary)
-        async def _callback_gen(o=opt): # クロージャで選択肢を保持
-            async def _cb(it): await view.cast_vote(it, o)
-            return _cb
-        btn.callback = await _callback_gen()
-        view.add_item(btn)
-
-    await interaction.response.send_message(
-        f"📅 終了予定: {deadline_date} {deadline_time}\n設定: {'匿名' if anonymous else '記名'}, {'複数可' if allow_multiple else '1人1票'}",
-        embed=view.make_embed(),
-        view=view
-    )
-
-    # 指定時間まで待機
-    await asyncio.sleep(wait_time)
-    await view.end_poll(interaction.channel)
-    
-JST = timezone(timedelta(hours=9)) # 日本時間
-
-async def update_status_loop(bot):
-    await bot.wait_until_ready()
-    while not bot.is_closed():
-        now = datetime.now(JST)
-        hour = now.hour
-        base_name = "ゆーやけBot" # ここは自由に変えてね
-        
-        if 5 <= hour < 11: # 朝
-            nick, act = f"{base_name}（ねむねむ）", discord.Activity(type=discord.ActivityType.watching, name="ゆねっさむの歌声")
-        elif 11 <= hour < 18: # 昼
-            nick, act = f"{base_name}（お仕事中）", discord.Activity(type=discord.ActivityType.competing, name="大くじ大会")
-        else: # 夜
-            nick, act = f"{base_name}（残業）", discord.Activity(type=discord.ActivityType.watching, name="ゆねっさむの子守唄")
-
-        await bot.change_presence(status=discord.Status.online, activity=act)
-        for guild in bot.guilds:
-            try: await guild.me.edit(nick=nick)
-            except: continue
-        await asyncio.sleep(600) # 10分おきにチェック
+async def update_blacklist():
+    """特定のチャンネルからIDを読み込む"""
+    channel = bot.get_channel(MONITOR_CHANNEL_ID)
+    if channel:
+        BLACKLIST_GUILD_IDS.clear()
+        async for message in channel.history(limit=100):
+            if message.content.isdigit():
+                BLACKLIST_GUILD_IDS.add(int(message.content))
+        print(f"Updated Blacklist: {BLACKLIST_GUILD_IDS}")
 
 @bot.event
 async def on_ready():
-    activity = discord.Activity(type=discord.ActivityType.watching, name="ゆねっさむの歌声")
-    await bot.change_presence(status=discord.Status.online, activity=activity)
-    print('起動完了：お問い合わせは、宣伝茶亭のさぴょにゃんへ！')
+    print(f"Logged in as {bot.user}")
+    await update_blacklist()
 
-# --- 新機能：退出した人のメッセージを自動削除 ---
-@bot.event
-async def on_member_remove(member):
-    count = 0
-    # サーバー内の全テキストチャンネルをスキャン（Botが閲覧できる範囲）
-    for channel in member.guild.text_channels:
-        try:
-            # 直近100件のメッセージから退出者のものを探して削除
-            deleted = await channel.purge(limit=100, check=lambda m: m.author.id == member.id)
-            count += len(deleted)
-        except discord.Forbidden:
-            continue # 権限がないチャンネルはスキップ
-        except Exception as e:
-            print(f"削除エラー: {e}")
-
-    if count > 0:
-        await send_log(bot, f"🗑️ {member.mention} さんのメッセージを計 {count} 件削除完了しました。")
-    else:
-        await send_log(bot, f"👤 {member.mention} さんが退出しましたが、削除対象のメッセージは見つかりませんでした。")
-
-# --- 設定用コマンド ---
-@bot.tree.command(name="setup_logs", description="ログを送信するチャンネルを設定します")
-async def setup_logs(interaction: discord.Interaction, log_channel: discord.TextChannel):
-    config_data["log_channel_id"] = log_channel.id
-    save_config(config_data)
-    await interaction.response.send_message(f"✅ ログチャンネルを {log_channel.mention} に設定しました。", ephemeral=True)
-
-@bot.tree.command(name="toggle_anti_invite", description="招待リンク無効化のON/OFF")
-@app_commands.choices(setting=[app_commands.Choice(name="ON", value=1), app_commands.Choice(name="OFF", value=0)])
-async def toggle_anti_invite(interaction: discord.Interaction, setting: int):
-    config_data["invite_anti_link"] = bool(setting)
-    save_config(config_data)
-    await interaction.response.send_message(f"✅ 招待リンク自動無効化を {'ON' if setting else 'OFF'} にしました。", ephemeral=True)
-
-# 招待リンク監視
 @bot.event
 async def on_message(message):
-    if message.author.bot or message.guild is None: return
-    if config_data.get("invite_anti_link"):
-        watch_list = await get_watch_guilds(bot)
-        if message.guild.id in watch_list:
-            codes = re.findall(r'(?:discord\.gg/|discord\.com/invite/)([\w-]+)', message.content)
-            for code in codes:
-                try:
-                    invite = await bot.fetch_invite(code)
-                    if invite.guild.id in [g.id for g in bot.guilds]:
-                        await invite.delete(reason="自動無効化")
-                        await send_log(bot, f"🔗 招待を無効化しました: {code} (場所: {message.guild.name})")
-                except: pass
+    global AUTO_DELETE_ENABLED
+    if message.author.bot:
+        return
+
+    # IDリストが更新されたら反映（特定のチャンネルに新しくIDが書かれた場合）
+    if message.channel.id == MONITOR_CHANNEL_ID and message.content.isdigit():
+        BLACKLIST_GUILD_IDS.add(int(message.content))
+        return
+
+    # フィルタリング処理
+    if AUTO_DELETE_ENABLED:
+        match = re.search(INVITE_REGEX, message.content)
+        if match:
+            invite_code = match.group(3)
+            try:
+                invite = await bot.fetch_invite(invite_code)
+                if invite.guild and invite.guild.id in BLACKLIST_GUILD_IDS:
+                    await message.delete()
+                    await message.channel.send(f"⚠️ {message.author.mention} 禁止サーバーへの招待は貼れません。", delete_after=5)
+            except:
+                pass
+
     await bot.process_commands(message)
 
-if __name__ == "__main__":
-    keep_alive()
-    bot.run(os.environ.get("TOKEN"))
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def toggle(ctx):
+    global AUTO_DELETE_ENABLED
+    AUTO_DELETE_ENABLED = not AUTO_DELETE_ENABLED
+    await ctx.send(f"フィルタリングを {'有効' if AUTO_DELETE_ENABLED else '無効'} にしました。")
+
+# 実行
+keep_alive()
+bot.run(TOKEN)
