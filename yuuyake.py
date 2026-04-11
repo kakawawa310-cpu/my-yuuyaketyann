@@ -70,6 +70,3 @@ async def toggle(interaction: discord.Interaction):
     AUTO_DELETE_ENABLED = not AUTO_DELETE_ENABLED
     status = "有効" if AUTO_DELETE_ENABLED else "無効"
     await interaction.response.send_message(f"フィルタリングを **{status}** にしました。")
-
-# 実行
-bot.run(TOKEN)
