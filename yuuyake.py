@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import re
 import os
+from keep_alive import keep_alive # ← これを戻す
 
 class MyBot(commands.Bot):
     def __init__(self):
@@ -11,7 +12,6 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # スラッシュコマンドを同期（反映）させる
         await self.tree.sync()
         print("Slash commands synced!")
 
@@ -21,7 +21,6 @@ AUTO_DELETE_ENABLED = True
 BLACKLIST_GUILD_IDS = set()
 INVITE_REGEX = r"(discord\.(gg|io|me|li)|discordapp\.com\/invite)\/([\w\-]+)"
 
-# 起動時にチャンネルからIDを読み込む
 async def update_blacklist():
     channel = bot.get_channel(1472220342889218250)
     if channel:
@@ -36,19 +35,16 @@ async def on_ready():
     print(f"Logged in as {bot.user}")
     await update_blacklist()
 
-# メッセージ監視（招待リンクの削除とIDの自動登録）
 @bot.event
 async def on_message(message):
     global AUTO_DELETE_ENABLED
     if message.author.bot:
         return
 
-    # ID登録チャンネルでの処理
     if message.channel.id == 1472220342889218250 and message.content.isdigit():
         BLACKLIST_GUILD_IDS.add(int(message.content))
         return
 
-    # 招待リンクの判定と削除
     if AUTO_DELETE_ENABLED:
         match = re.search(INVITE_REGEX, message.content)
         if match:
@@ -61,12 +57,14 @@ async def on_message(message):
             except:
                 pass
 
-# --- スラッシュコマンド部分 ---
-
 @bot.tree.command(name="toggle", description="招待リンクフィルターの有効/無効を切り替えます")
-@app_commands.checks.has_permissions(administrator=True) # 管理者のみ
+@app_commands.checks.has_permissions(administrator=True)
 async def toggle(interaction: discord.Interaction):
     global AUTO_DELETE_ENABLED
     AUTO_DELETE_ENABLED = not AUTO_DELETE_ENABLED
     status = "有効" if AUTO_DELETE_ENABLED else "無効"
     await interaction.response.send_message(f"フィルタリングを **{status}** にしました。")
+
+# --- 実行部分 ---
+keep_alive() # ← これを戻す
+bot.run(os.getenv("DISCORD_BOT_TOKEN")) # ← これを追加
