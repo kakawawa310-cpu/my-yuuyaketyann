@@ -6,8 +6,7 @@ import os
 from keep_alive import keep_alive
 
 # --- 設定 ---
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-MONITOR_CHANNEL_ID = int(os.getenv("MONITOR_CHANNEL_ID", "0"))
+MONITOR_CHANNEL_ID = int(os.getenv("1472220342889218250"))
 
 class MyBot(commands.Bot):
     def __init__(self):
@@ -79,3 +78,4 @@ async def toggle(interaction: discord.Interaction):
 # 実行
 keep_alive()
 bot.run(TOKEN)
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
