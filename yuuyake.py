@@ -35,7 +35,7 @@ INVITE_REGEX = r"(discord\.(gg|io|me|li)|discordapp\.com\/invite)\/([\w\-]+)"
 
 async def update_blacklist():
     """特定のチャンネルからIDを読み込む"""
-    channel = bot.get_channel(MONITOR_CHANNEL_ID)
+    channel = bot.get_channel(1472220342889218250)
     if channel:
         BLACKLIST_GUILD_IDS.clear()
         async for message in channel.history(limit=100):
@@ -55,7 +55,7 @@ async def on_message(message):
         return
 
     # IDリストが更新されたら反映（特定のチャンネルに新しくIDが書かれた場合）
-    if message.channel.id == MONITOR_CHANNEL_ID and message.content.isdigit():
+    if message.channel.id == 1472220342889218250 and message.content.isdigit():
         BLACKLIST_GUILD_IDS.add(int(message.content))
         return
 
