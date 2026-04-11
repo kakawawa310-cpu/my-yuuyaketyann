@@ -3,7 +3,6 @@ from discord import app_commands
 from discord.ext import commands
 import re
 import os
-from keep_alive import keep_alive
 
 # --- 設定 ---
 MONITOR_CHANNEL_ID = int(os.getenv("1472220342889218250"))
