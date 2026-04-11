@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import re
 import os
-from keep_alive import keep_alive
+import keep_alive
 
 class MyBot(commands.Bot):
     def __init__(self):
