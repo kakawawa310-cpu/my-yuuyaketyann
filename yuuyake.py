@@ -72,5 +72,4 @@ async def toggle(interaction: discord.Interaction):
     await interaction.response.send_message(f"フィルタリングを **{status}** にしました。")
 
 # 実行
-keep_alive()
 bot.run(TOKEN)
