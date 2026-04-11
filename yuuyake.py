@@ -6,8 +6,6 @@ from flask import Flask
 from threading import Thread
 from datetime import datetime, timedelta, timezone
 import asyncio
-import aiohttp
-from aiohttp import web
 
 # --- ID自動読み取り関数 ---
 async def get_watch_guilds(bot):
