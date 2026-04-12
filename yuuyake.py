@@ -88,14 +88,13 @@ async def toggle(interaction: discord.Interaction):
     status = "有効" if AUTO_DELETE_ENABLED else "無効"
     await interaction.response.send_message(f"フィルタリングを **{status}** にしました。")
 
-# --- 5. 実行開始 ---
 if __name__ == "__main__":
-    print("--- Starting Web Server ---")
-    keep_alive()  # Webサーバーを裏で動かす
-    
+    keep_alive()
     token = os.getenv("DISCORD_BOT_TOKEN")
+    
+    # ログに出力して確認
     if token:
-        print("--- Logging in to Discord ---")
+        print(f"✅ トークンを発見（先頭5文字: {token[:5]}...）")
         bot.run(token)
     else:
-        print("❌ エラー: DISCORD_BOT_TOKEN が見つかりません。")
+        print("❌ エラー: Renderの設定画面で 'DISCORD_BOT_TOKEN' が見つかりません！")
