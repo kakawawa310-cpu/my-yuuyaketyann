@@ -4,39 +4,42 @@ from discord.ext import commands
 import re
 import os
 from flask import Flask
-from threading import Thread
+from threading import Thread  # ← これが重要です！
 
-# --- Render対策: Webサーバーを同じファイル内に書く ---
+# --- 1. Webサーバー設定 (Renderの停止防止) ---
 app = Flask('')
+
 @app.route('/')
 def home():
-    return "Bot is alive!"
+    return "Bot is running!"
 
 def run():
-    app.run(host='0.0.0.0', port=8080)
+    # Renderの標準ポート10000を使用
+    app.run(host='0.0.0.0', port=10000)
 
 def keep_alive():
     t = Thread(target=run)
+    t.daemon = True
     t.start()
 
-# --- Botのメイン処理 ---
+# --- 2. Botのクラス定義 ---
 class MyBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
-        intents.message_content = True
+        intents.message_content = True  # メッセージ読み取り許可
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # スラッシュコマンドを同期
         await self.tree.sync()
-        print("Slash commands synced!")
+        print("✅ Slash commands synced!")
 
 bot = MyBot()
 
+# --- 3. 動作設定 ---
 AUTO_DELETE_ENABLED = True
 BLACKLIST_GUILD_IDS = set()
 INVITE_REGEX = r"(discord\.(gg|io|me|li)|discordapp\.com\/invite)\/([\w\-]+)"
-CHANNEL_ID = 1472220342889218250 # 指定されたチャンネルID
+CHANNEL_ID = 1472220342889218250 # サーバーIDが書かれているチャンネル
 
 async def update_blacklist():
     channel = bot.get_channel(CHANNEL_ID)
@@ -45,11 +48,11 @@ async def update_blacklist():
         async for message in channel.history(limit=100):
             if message.content.isdigit():
                 BLACKLIST_GUILD_IDS.add(int(message.content))
-        print(f"Blacklist updated: {BLACKLIST_GUILD_IDS}")
+        print(f"✅ Blacklist updated: {BLACKLIST_GUILD_IDS}")
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
+    print(f"✅ Logged in as {bot.user}")
     await update_blacklist()
 
 @bot.event
@@ -58,10 +61,12 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    # ID登録チャンネルでの処理
     if message.channel.id == CHANNEL_ID and message.content.isdigit():
         BLACKLIST_GUILD_IDS.add(int(message.content))
         return
 
+    # 招待リンクの判定と削除
     if AUTO_DELETE_ENABLED:
         match = re.search(INVITE_REGEX, message.content)
         if match:
@@ -74,7 +79,8 @@ async def on_message(message):
             except:
                 pass
 
-@bot.tree.command(name="toggle", description="招待リンクフィルターの有効/無効を切り替えます")
+# --- 4. スラッシュコマンド ---
+@bot.tree.command(name="toggle", description="招待リンクフィルターのON/OFF")
 @app_commands.checks.has_permissions(administrator=True)
 async def toggle(interaction: discord.Interaction):
     global AUTO_DELETE_ENABLED
@@ -82,17 +88,14 @@ async def toggle(interaction: discord.Interaction):
     status = "有効" if AUTO_DELETE_ENABLED else "無効"
     await interaction.response.send_message(f"フィルタリングを **{status}** にしました。")
 
-# --- 修正後の起動部分 ---
+# --- 5. 実行開始 ---
 if __name__ == "__main__":
-    # Webサーバーを別スレッドで起動（これがないと、ここでプログラムが止まります）
-    t = Thread(target=run) # run関数をスレッドに渡す
-    t.daemon = True        # プログラム終了時に一緒に閉じる設定
-    t.start()              # ここでWebサーバーを裏側で動かす
-    
-    print("Webサーバーを裏側で起動しました。次にBotをログインさせます...")
+    print("--- Starting Web Server ---")
+    keep_alive()  # Webサーバーを裏で動かす
     
     token = os.getenv("DISCORD_BOT_TOKEN")
     if token:
-        bot.run(token) # ここで初めてBotが動き出す
+        print("--- Logging in to Discord ---")
+        bot.run(token)
     else:
-        print("エラー: トークンが見つかりません。")
+        print("❌ エラー: DISCORD_BOT_TOKEN が見つかりません。")
