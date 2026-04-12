@@ -86,6 +86,6 @@ async def toggle(interaction: discord.Interaction):
 if __name__ == "__main__":
     keep_alive()
     # テスト用に直接トークンを入れる（成功したら環境変数に戻しましょう）
-    token = "ここに実際のトークンを貼り付け" 
+    token = "TOKEN" 
     print("ログインを試みます...")
     bot.run(token)
