@@ -82,10 +82,17 @@ async def toggle(interaction: discord.Interaction):
     status = "有効" if AUTO_DELETE_ENABLED else "無効"
     await interaction.response.send_message(f"フィルタリングを **{status}** にしました。")
 
-# 一番下の部分をこれに書き換えてテスト
+# --- 修正後の起動部分 ---
 if __name__ == "__main__":
-    keep_alive()
-    # テスト用に直接トークンを入れる（成功したら環境変数に戻しましょう）
-    token = "TOKEN" 
-    print("ログインを試みます...")
-    bot.run(token)
+    # Webサーバーを別スレッドで起動（これがないと、ここでプログラムが止まります）
+    t = Thread(target=run) # run関数をスレッドに渡す
+    t.daemon = True        # プログラム終了時に一緒に閉じる設定
+    t.start()              # ここでWebサーバーを裏側で動かす
+    
+    print("Webサーバーを裏側で起動しました。次にBotをログインさせます...")
+    
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    if token:
+        bot.run(token) # ここで初めてBotが動き出す
+    else:
+        print("エラー: トークンが見つかりません。")
