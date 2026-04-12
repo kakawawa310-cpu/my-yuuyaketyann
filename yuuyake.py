@@ -14,7 +14,7 @@ def home():
     return "Bot is running!"
 
 def run():
-    # Renderの標準ポート10000を使用
+    # ポートを 10000 に固定する
     app.run(host='0.0.0.0', port=10000)
 
 def keep_alive():
