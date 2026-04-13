@@ -92,4 +92,4 @@ async def toggle(interaction: discord.Interaction):
 keep_alive()
 
 # Botを起動
-client.run("YOUR_BOT_TOKEN_HERE")
+bot.run("YOUR_BOT_TOKEN_HERE")
