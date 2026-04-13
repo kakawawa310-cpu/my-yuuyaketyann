@@ -6,20 +6,20 @@ import os
 from flask import Flask
 from threading import Thread  # ← これが重要です！
 
-# --- 1. Webサーバー設定 (Renderの停止防止) ---
+# --- Webサーバーの設定 ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is running!"
+    return "Bot is alive!"
 
 def run():
-    # ポートを 10000 に固定する
-    app.run(host='0.0.0.0', port=10000)
+    # RenderはデフォルトでPORT環境変数を使用するため、それに合わせる
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     t = Thread(target=run)
-    t.daemon = True
     t.start()
 
 # --- 2. Botのクラス定義 ---
@@ -88,13 +88,8 @@ async def toggle(interaction: discord.Interaction):
     status = "有効" if AUTO_DELETE_ENABLED else "無効"
     await interaction.response.send_message(f"フィルタリングを **{status}** にしました。")
 
-if __name__ == "__main__":
-    keep_alive()
-    token = os.getenv("DISCORD_BOT_TOKEN")
-    
-    # ログに出力して確認
-    if token:
-        print(f"✅ トークンを発見（先頭5文字: {token[:5]}...）")
-        bot.run(token)
-    else:
-        print("❌ エラー: Renderの設定画面で 'DISCORD_BOT_TOKEN' が見つかりません！")
+# Webサーバーを起動
+keep_alive()
+
+# Botを起動
+client.run("YOUR_BOT_TOKEN_HERE")
