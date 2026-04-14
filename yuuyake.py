@@ -3,30 +3,82 @@ from discord import app_commands
 from discord.ext import commands
 import re
 import os
-from flask import Flask
-from threading import Thread  # ← これが重要です！
+import urllib.parse
+import requests
+from flask import Flask, request
+from threading import Thread
 
-# --- Webサーバーの設定 ---
+# --- 設定値 ---
+CLIENT_ID = "1489974962730307707"
+CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
+# ⚠️ 下のURLは自分のRenderアプリのドメインに書き換えてください
+REDIRECT_URI = "https://onrender.com" 
+MY_GUILD_ID = 1176515964561526914
+VERIFY_ROLE_ID = 1472220342889218250
+CHANNEL_ID = 1472220342889218250 # 禁止IDが投稿されるチャンネル
+
+# --- Flask Webサーバー ---
 app = Flask('')
 
 @app.route('/')
 def home():
     return "Bot is alive!"
 
+@app.route('/callback')
+def callback():
+    code = request.args.get('code')
+    
+    # 1. トークン取得
+    data = {
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': REDIRECT_URI
+    }
+    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    r = requests.post('https://discord.com', data=data, headers=headers)
+    token_json = r.json()
+    access_token = token_json.get('access_token')
+
+    if not access_token:
+        return "エラー: 認証に失敗しました。もう一度やり直してください。", 400
+
+    # 2. ユーザー情報と所属サーバー取得
+    auth_headers = {'Authorization': f'Bearer {access_token}'}
+    guilds = requests.get('https://discord.com', headers=auth_headers).json()
+    user_data = requests.get('https://discord.com', headers=auth_headers).json()
+    user_id = int(user_data['id'])
+
+    # 3. 禁止サーバーチェック
+    banned_list = [str(gid) for gid in BLACKLIST_GUILD_IDS]
+    if any(g['id'] in banned_list for g in guilds):
+        return "【認証不可】禁止されているサーバーに所属しているため、ロールを付与できません。", 403
+
+    # 4. ロール付与
+    guild = bot.get_guild(MY_GUILD_ID)
+    if not guild:
+        return "エラー: Botが自分のサーバーにいません。", 500
+        
+    member = guild.get_member(user_id)
+    role = guild.get_role(VERIFY_ROLE_ID)
+
+    if member and role:
+        bot.loop.create_task(member.add_roles(role))
+        return "認証成功！ロールを付与しました。Discordに戻ってください。"
+    
+    return "エラー: サーバー内にあなたが見つかりませんでした。先に入室してください。", 404
+
 def run():
-    # RenderはデフォルトでPORT環境変数を使用するため、それに合わせる
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-# --- 2. Botのクラス定義 ---
+# --- Botの設定 ---
 class MyBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
-        intents.message_content = True  # メッセージ読み取り許可
+        intents.message_content = True
+        intents.members = True # メンバー操作に必要
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
@@ -37,66 +89,23 @@ class VerifyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="認証してロールを受け取る", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="認証してロールを受け取る", style=discord.ButtonStyle.green, custom_id="verify_btn")
     async def verify_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # OAuth2のURLを生成
         params = {
-            "client_id": "1489974962730307707",
-            "redirect_uri": "https://onrender.com",
+            "client_id": CLIENT_ID,
+            "redirect_uri": REDIRECT_URI,
             "response_type": "code",
             "scope": "identify guilds"
         }
         auth_url = f"https://discord.com?{urllib.parse.urlencode(params)}"
-        
-        await interaction.response.send_message(
-            f"以下のリンクから連携して認証を完了してください：\n[ここをクリックして認証]({auth_url})",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"以下のリンクから連携して認証を完了してください：\n[ここをクリックして認証]({auth_url})", ephemeral=True)
 
 bot = MyBot()
 
-@app.route('/callback')
-def callback():
-    code = request.args.get('code')
-
-    # 1. トークン取得 (前と同じ)
-    data = {
-        'client_id': "1489974962730307707",
-        'client_secret': "NrjoF90hbFV-SqqaDlKjfrQSRxNjj1gm",
-        'grant_type': 'authorization_code',
-        'code': code,
-        'redirect_uri': "https://onrender.com"
-    }
-    r = requests.post('https://discord.com', data=data)
-    access_token = r.json().get('access_token')
-
-    # 2. ユーザー情報と所属サーバー取得
-    headers = {'Authorization': f'Bearer {access_token}'}
-    guilds = requests.get('https://discord.com', headers=headers).json()
-    user_data = requests.get('https://discord.com', headers=headers).json()
-    user_id = int(user_data['id'])
-
-    # 3. 禁止サーバーチェック
-    BANNED_ID = "禁止したいサーバーID"
-    if any(g['id'] == BANNED_ID for g in guilds):
-        return "【認証不可】特定のサーバーに所属しているため認証できません。", 403
-
-    # 4. 決まったロールを一つ付与
-    guild = bot.get_guild(1176515964561526914)
-    member = guild.get_member(user_id)
-    role = guild.get_role(1472220342889218250) # ここにコピーしたIDを貼る
-
-    if member and role:
-        bot.loop.create_task(member.add_roles(role))
-        return "認証成功！ロールを付与しました。Discordに戻ってください。"
-    
-    return "ユーザーが見つかりませんでした。", 404
-
-# --- 3. 動作設定 ---
+# --- 判定ロジック ---
 AUTO_DELETE_ENABLED = True
 BLACKLIST_GUILD_IDS = set()
 INVITE_REGEX = r"(discord\.(gg|io|me|li)|discordapp\.com\/invite)\/([\w\-]+)"
-CHANNEL_ID = 1472220342889218250 # サーバーIDが書かれているチャンネル
 
 async def update_blacklist():
     channel = bot.get_channel(CHANNEL_ID)
@@ -111,19 +120,15 @@ async def update_blacklist():
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     await update_blacklist()
+    # 認証ボタンを設置したいチャンネルで一回だけ実行
+    # await bot.get_channel(送信先チャンネルID).send("認証パネル", view=VerifyView())
 
 @bot.event
 async def on_message(message):
-    global AUTO_DELETE_ENABLED
-    if message.author.bot:
-        return
-
-    # ID登録チャンネルでの処理
+    if message.author.bot: return
     if message.channel.id == CHANNEL_ID and message.content.isdigit():
         BLACKLIST_GUILD_IDS.add(int(message.content))
         return
-
-    # 招待リンクの判定と削除
     if AUTO_DELETE_ENABLED:
         match = re.search(INVITE_REGEX, message.content)
         if match:
@@ -133,21 +138,14 @@ async def on_message(message):
                 if invite.guild and invite.guild.id in BLACKLIST_GUILD_IDS:
                     await message.delete()
                     await message.channel.send(f"⚠️ {message.author.mention} 禁止サーバーへの招待は削除されました。", delete_after=5)
-            except:
-                pass
+            except: pass
 
-# --- 4. スラッシュコマンド ---
-@bot.tree.command(name="toggle", description="招待リンクフィルターのON/OFF")
+@bot.tree.command(name="setup_verify", description="認証用パネルを設置します")
 @app_commands.checks.has_permissions(administrator=True)
-async def toggle(interaction: discord.Interaction):
-    global AUTO_DELETE_ENABLED
-    AUTO_DELETE_ENABLED = not AUTO_DELETE_ENABLED
-    status = "有効" if AUTO_DELETE_ENABLED else "無効"
-    await interaction.response.send_message(f"フィルタリングを **{status}** にしました。")
+async def setup_verify(interaction: discord.Interaction):
+    await interaction.response.send_message("認証パネルを設置しました。", ephemeral=True)
+    await interaction.channel.send("【認証】ボタンを押して、禁止サーバーにいないか確認します。", view=VerifyView())
 
-# Webサーバーを起動
-keep_alive()
-
-import os
-# ...（中略）...
+# 起動
+Thread(target=run).start()
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
