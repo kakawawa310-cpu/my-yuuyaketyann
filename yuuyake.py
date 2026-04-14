@@ -36,7 +36,7 @@ class MyBot(commands.Bot):
 bot = MyBot()
 
 # 設定値
-BANNED_GUILD_ID = 123456789012345678  # 入っていたらダメなサーバーID
+BANNED_GUILD_ID = 1472220342889218250
 
 class RoleSelectView(discord.ui.View):
     def __init__(self):
