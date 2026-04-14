@@ -3,16 +3,16 @@ from discord import app_commands
 from discord.ext import commands
 import re
 import os
-import urllib.parse
-import requests
 from flask import Flask, request
 from threading import Thread
+import urllib.parse
+import requests
 
 # --- 設定値 ---
 CLIENT_ID = "1489974962730307707"
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 # ⚠️ 下のURLは自分のRenderアプリのドメインに書き換えてください
-REDIRECT_URI = "https://onrender.com" 
+REDIRECT_URI = "https://my-yuuyaketyann.onrender.com" 
 MY_GUILD_ID = 1176515964561526914
 VERIFY_ROLE_ID = 1472220342889218250
 CHANNEL_ID = 1472220342889218250 # 禁止IDが投稿されるチャンネル
