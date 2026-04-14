@@ -33,50 +33,64 @@ class MyBot(commands.Bot):
         await self.tree.sync()
         print("✅ Slash commands synced!")
 
-bot = MyBot()
-
-# 設定値
-BANNED_GUILD_ID = 1472220342889218250
-
-class RoleSelectView(discord.ui.View):
+class VerifyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.select(
-        placeholder="付与したいロールを選んでください",
-        min_values=1,
-        max_values=1,
-        options=[
-            discord.SelectOption(label="ロールA", value="111222333444"), # valueにロールID
-            discord.SelectOption(label="ロールB", value="555666777888"),
-        ]
-    )
-    async def select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
-        # 1. 禁止サーバーにユーザーがいるかチェック
-        # ※Botがそのサーバーに入っている必要があります
-        banned_guild = interaction.client.get_guild(BANNED_GUILD_ID)
+    @discord.ui.button(label="認証してロールを受け取る", style=discord.ButtonStyle.green)
+    async def verify_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # OAuth2のURLを生成
+        params = {
+            "client_id": "1489974962730307707",
+            "redirect_uri": "https://onrender.com",
+            "response_type": "code",
+            "scope": "identify guilds"
+        }
+        auth_url = f"https://discord.com?{urllib.parse.urlencode(params)}"
         
-        if banned_guild and banned_guild.get_member(interaction.user.id):
-            return await interaction.response.send_message(
-                "【認証エラー】特定のサーバーに所属しているため、ロールを付与できません。", 
-                ephemeral=True
-            )
+        await interaction.response.send_message(
+            f"以下のリンクから連携して認証を完了してください：\n[ここをクリックして認証]({auth_url})",
+            ephemeral=True
+        )
 
-        # 2. 選択されたロールを取得して付与
-        role_id = int(select.values[0])
-        role = interaction.guild.get_role(role_id)
+bot = MyBot()
 
-        if role:
-            try:
-                await interaction.user.add_roles(role)
-                await interaction.response.send_message(f"「{role.name}」を付与しました！", ephemeral=True)
-            except discord.Forbidden:
-                await interaction.response.send_message("Botにロール付与の権限がありません。", ephemeral=True)
-        else:
-            await interaction.response.send_message("指定されたロールが見つかりませんでした。", ephemeral=True)
+@app.route('/callback')
+def callback():
+    code = request.args.get('code')
 
-# 使い方（コマンドなどで呼び出し）
-# await interaction.channel.send("認証パネル：下のメニューから選んでください", view=RoleSelectView())
+    # 1. トークン取得 (前と同じ)
+    data = {
+        'client_id': "1489974962730307707",
+        'client_secret': "NrjoF90hbFV-SqqaDlKjfrQSRxNjj1gm",
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': "https://onrender.com"
+    }
+    r = requests.post('https://discord.com', data=data)
+    access_token = r.json().get('access_token')
+
+    # 2. ユーザー情報と所属サーバー取得
+    headers = {'Authorization': f'Bearer {access_token}'}
+    guilds = requests.get('https://discord.com', headers=headers).json()
+    user_data = requests.get('https://discord.com', headers=headers).json()
+    user_id = int(user_data['id'])
+
+    # 3. 禁止サーバーチェック
+    BANNED_ID = "禁止したいサーバーID"
+    if any(g['id'] == BANNED_ID for g in guilds):
+        return "【認証不可】特定のサーバーに所属しているため認証できません。", 403
+
+    # 4. 決まったロールを一つ付与
+    guild = bot.get_guild(1176515964561526914)
+    member = guild.get_member(user_id)
+    role = guild.get_role(1472220342889218250) # ここにコピーしたIDを貼る
+
+    if member and role:
+        bot.loop.create_task(member.add_roles(role))
+        return "認証成功！ロールを付与しました。Discordに戻ってください。"
+    
+    return "ユーザーが見つかりませんでした。", 404
 
 # --- 3. 動作設定 ---
 AUTO_DELETE_ENABLED = True
