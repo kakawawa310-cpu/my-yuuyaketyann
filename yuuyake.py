@@ -91,6 +91,4 @@ async def toggle(interaction: discord.Interaction):
 # Webサーバーを起動
 keep_alive()
 
-# Botを起動
-# ○ 正解（自分のトークンを入れる）
-bot.run("")
+bot.run("TOKEN")
