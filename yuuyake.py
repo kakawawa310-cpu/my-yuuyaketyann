@@ -35,6 +35,49 @@ class MyBot(commands.Bot):
 
 bot = MyBot()
 
+# 設定値
+BANNED_GUILD_ID = 123456789012345678  # 入っていたらダメなサーバーID
+
+class RoleSelectView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.select(
+        placeholder="付与したいロールを選んでください",
+        min_values=1,
+        max_values=1,
+        options=[
+            discord.SelectOption(label="ロールA", value="111222333444"), # valueにロールID
+            discord.SelectOption(label="ロールB", value="555666777888"),
+        ]
+    )
+    async def select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
+        # 1. 禁止サーバーにユーザーがいるかチェック
+        # ※Botがそのサーバーに入っている必要があります
+        banned_guild = interaction.client.get_guild(BANNED_GUILD_ID)
+        
+        if banned_guild and banned_guild.get_member(interaction.user.id):
+            return await interaction.response.send_message(
+                "【認証エラー】特定のサーバーに所属しているため、ロールを付与できません。", 
+                ephemeral=True
+            )
+
+        # 2. 選択されたロールを取得して付与
+        role_id = int(select.values[0])
+        role = interaction.guild.get_role(role_id)
+
+        if role:
+            try:
+                await interaction.user.add_roles(role)
+                await interaction.response.send_message(f"「{role.name}」を付与しました！", ephemeral=True)
+            except discord.Forbidden:
+                await interaction.response.send_message("Botにロール付与の権限がありません。", ephemeral=True)
+        else:
+            await interaction.response.send_message("指定されたロールが見つかりませんでした。", ephemeral=True)
+
+# 使い方（コマンドなどで呼び出し）
+# await interaction.channel.send("認証パネル：下のメニューから選んでください", view=RoleSelectView())
+
 # --- 3. 動作設定 ---
 AUTO_DELETE_ENABLED = True
 BLACKLIST_GUILD_IDS = set()
