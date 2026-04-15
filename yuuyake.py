@@ -73,16 +73,19 @@ class MyBot(commands.Bot):
 
 class VerifyView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
-    @discord.ui.button(label="認証を開始する", style=discord.ButtonStyle.green, custom_id="verify_fixed_v1")
+   class VerifyView(discord.ui.View):
+    def __init__(self): super().__init__(timeout=None)
+    @discord.ui.button(label="認証を開始する", style=discord.ButtonStyle.green, custom_id="verify_fixed_v2")
     async def verify(self, interaction, button):
         params = {
             "client_id": CLIENT_ID,
-            "redirect_uri": REDIRECT_URI,
+            "redirect_uri": REDIRECT_URI, # ← ここを 'https://onrender.com' にしないでください
             "response_type": "code",
             "scope": "identify guilds"
         }
+        # Discordの正しい認証用URL
         auth_url = f"https://discord.com?{urllib.parse.urlencode(params)}"
-        await interaction.response.send_message(f"以下のリンクから連携して認証してください（禁止鯖チェックが行われます）：\n[認証ページへ移動]({auth_url})", ephemeral=True)
+        await interaction.response.send_message(f"以下のリンクから連携して認証してください：\n[認証ページへ移動]({auth_url})", ephemeral=True)
 
 bot = MyBot()
 SYSTEM_ENABLED = True
