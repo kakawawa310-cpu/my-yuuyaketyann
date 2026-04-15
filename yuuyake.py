@@ -71,16 +71,7 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
     async def setup_hook(self): await self.tree.sync()
 
-class VerifyView(discord.ui.View):
-    def __init__(self): super().__init__(timeout=None)
-   class VerifyView(discord.ui.View):
-    def __init__(self): super().__init__(timeout=None)
-    # --- 修正部分 ---
-class VerifyView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    # --- 修正後のコード（76行目付近） ---
+# 76行目の Menu を消して、ここから書き始める
 class VerifyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
