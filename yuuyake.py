@@ -9,10 +9,11 @@ from flask import Flask, request
 from threading import Thread
 
 # --- 設定（定数） ---
+# --- 修正後の設定 ---
 CLIENT_ID = "1489974962730307707"
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-# ここのURLがDeveloper Portalの設定と完全に一致している必要があります
-REDIRECT_URI = "https://onrender.com"
+# ここを https://onrender.com ではなく、必ず callback まで含めて書く
+REDIRECT_URI = "https://onrender.com" 
 
 MY_GUILD_ID = 1176515964561526914
 VERIFY_ROLE_ID = 1472220342889218250
@@ -79,12 +80,13 @@ class VerifyView(discord.ui.View):
     @discord.ui.button(label="認証を開始する", style=discord.ButtonStyle.green, custom_id="verify_fixed_v5")
     async def verify(self, interaction, button):
         # --- ここからを「良い例」に書き換える ---
-        params = {
+               params = {
             "client_id": CLIENT_ID,
-            "redirect_uri": REDIRECT_URI,
+            "redirect_uri": REDIRECT_URI, # ← ここを直接書かず REDIRECT_URI にする
             "response_type": "code",
             "scope": "identify guilds"
         }
+        
         # ⚠️ ここを f"https://discord.com?{urllib.parse.urlencode(params)}" にしてください
         auth_url = f"https://discord.com?{urllib.parse.urlencode(params)}"
         # --- ここまで ---
