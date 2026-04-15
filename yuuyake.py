@@ -73,7 +73,7 @@ class MyBot(commands.Bot):
 
 class VerifyView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
-   class VerifyView(discord.ui.View)
+   class VerifyView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
     # --- 修正部分 ---
 class VerifyView(discord.ui.View):
