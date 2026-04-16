@@ -10,7 +10,7 @@ from threading import Thread
 
 CLIENT_ID = "1489974962730307707"
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-REDIRECT_URI = "https://onrender.com" 
+REDIRECT_URI = "https://onrender.com/callback" 
 
 MY_GUILD_ID = 1176515964561526914
 VERIFY_ROLE_ID = 1472220342889218250
