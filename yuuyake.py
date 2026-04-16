@@ -7,95 +7,68 @@ from flask import Flask
 from threading import Thread
 
 # --- 設定値 ---
-# 禁止サーバーIDが投稿されるチャンネルID
-CHANNEL_ID = 1472220342889218250 
+ID_LIST_CHANNEL_ID = 1472220342889218250 # 禁止IDが投稿されているチャンネル
+LOG_CHANNEL_ID = 1472220342889218250     # ログ（検知通知）を送るチャンネル
 
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "Bot is alive!"
-
-def run():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
+def home(): return "Bot is alive!"
+def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+def keep_alive(): Thread(target=run).start()
 
 class MyBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
-        intents.members = True  # 入室検知に必要
+        intents.members = True
         super().__init__(command_prefix="!", intents=intents)
-
-    async def setup_hook(self):
-        await self.tree.sync()
-        print("✅ Slash commands synced!")
+    async def setup_hook(self): await self.tree.sync()
 
 bot = MyBot()
 
 # --- 状態管理 ---
-SYSTEM_ENABLED = True
-BLACKLIST_GUILD_IDS = {} # {サーバーID: サーバー名}
+CHECK_JOIN_ENABLED = True    # 2. 参加時チェックのON/OFF
+DELETE_INVITE_ENABLED = True # 3. 招待削除のON/OFF
+BLACKLIST_GUILD_IDS = {1176515964561526914}     # {サーバーID: サーバー名}
 INVITE_REGEX = r"(discord\.(gg|io|me|li)|discordapp\.com\/invite)\/([\w\-]+)"
 
 async def update_blacklist():
-    """チャンネル履歴から禁止サーバーリストを更新"""
-    channel = bot.get_channel(CHANNEL_ID)
+    channel = bot.get_channel(ID_LIST_CHANNEL_ID)
     if channel:
         BLACKLIST_GUILD_IDS.clear()
-        # 履歴を200件取得して解析
         messages = [m async for m in channel.history(limit=200)]
         for i, m in enumerate(messages):
             if m.content.isdigit():
                 guild_id = int(m.content)
-                # 1行上（メッセージリストでは次の要素）を名前として取得
                 guild_name = messages[i+1].content if i+1 < len(messages) else "不明なサーバー"
                 BLACKLIST_GUILD_IDS[guild_id] = guild_name
-        print(f"✅ 禁止リストを更新しました: {len(BLACKLIST_GUILD_IDS)}件")
 
 @bot.event
 async def on_ready():
-    print(f"✅ {bot.user} としてログインしました")
+    print(f"✅ {bot.user} 起動")
     await update_blacklist()
 
 @bot.event
 async def on_member_join(member):
-    """新しい人が参加した時、禁止鯖にいないかチェック"""
-    if not SYSTEM_ENABLED:
-        return
-    
-    # 禁止リストにあるサーバーを一つずつ確認
+    """2. 参加時チェック機能"""
+    if not CHECK_JOIN_ENABLED: return
     for banned_id, banned_name in BLACKLIST_GUILD_IDS.items():
-        # Botが共通で入っているサーバーのみ判定可能
         banned_guild = bot.get_guild(banned_id)
         if banned_guild and banned_guild.get_member(member.id):
-            log_channel = bot.get_channel(CHANNEL_ID)
+            log_channel = bot.get_channel(LOG_CHANNEL_ID)
             if log_channel:
-                await log_channel.send(
-                    f"⚠️ **禁止サーバー所属者を検知**\n"
-                    f"ユーザー: {member.mention} ({member.name})\n"
-                    f"該当サーバー: **{banned_name}**\n"
-                    f"サーバーID: `{banned_id}`"
-                )
+                await log_channel.send(f"⚠️ **禁止鯖所属者検知**\nユーザー: {member.mention}\n該当鯖: {banned_name}\nID: `{banned_id}`")
             break
 
 @bot.event
 async def on_message(message):
-    global SYSTEM_ENABLED
-    if message.author.bot:
-        return
-
-    # ID登録チャンネルで数字が打たれたらリスト更新
-    if message.channel.id == CHANNEL_ID and message.content.isdigit():
+    if message.author.bot: return
+    if message.channel.id == ID_LIST_CHANNEL_ID and message.content.isdigit():
         await update_blacklist()
         return
 
-    # 招待リンクの判定と削除
-    if SYSTEM_ENABLED:
+    """3. 招待リンク削除機能"""
+    if DELETE_INVITE_ENABLED:
         match = re.search(INVITE_REGEX, message.content)
         if match:
             invite_code = match.group(3)
@@ -103,24 +76,34 @@ async def on_message(message):
                 invite = await bot.fetch_invite(invite_code)
                 if invite.guild and invite.guild.id in BLACKLIST_GUILD_IDS:
                     await message.delete()
-                    await message.channel.send(
-                        f"⚠️ {message.author.mention} 禁止サーバー「{BLACKLIST_GUILD_IDS[invite.guild.id]}」への招待は許可されていません。", 
-                        delete_after=7
-                    )
-            except:
-                pass
+                    await message.channel.send(f"⚠️ {message.author.mention} 禁止サーバーへの招待は削除されました。", delete_after=5)
+            except: pass
 
 # --- スラッシュコマンド ---
-@bot.tree.command(name="toggle", description="システムのON/OFFを切り替えます")
+
+@bot.tree.command(name="toggle_join", description="参加時チェックのON/OFF")
 @app_commands.checks.has_permissions(administrator=True)
-async def toggle(interaction: discord.Interaction):
-    global SYSTEM_ENABLED
-    SYSTEM_ENABLED = not SYSTEM_ENABLED
-    status = "有効" if SYSTEM_ENABLED else "無効"
-    await interaction.response.send_message(f"フィルタリングシステムを **{status}** にしました。")
+async def toggle_join(interaction: discord.Interaction):
+    global CHECK_JOIN_ENABLED
+    CHECK_JOIN_ENABLED = not CHECK_JOIN_ENABLED
+    await interaction.response.send_message(f"参加時チェックを **{'有効' if CHECK_JOIN_ENABLED else '無効'}** にしました。")
 
-# Webサーバー起動
+@bot.tree.command(name="toggle_invite", description="招待リンク削除のON/OFF")
+@app_commands.checks.has_permissions(administrator=True)
+async def toggle_invite(interaction: discord.Interaction):
+    global DELETE_INVITE_ENABLED
+    DELETE_INVITE_ENABLED = not DELETE_INVITE_ENABLED
+    await interaction.response.send_message(f"招待リンク削除を **{'有効' if DELETE_INVITE_ENABLED else '無効'}** にしました。")
+
+@bot.tree.command(name="reset_name", description="Botの名前とアバターをリセットします（一回限り推奨）")
+@app_commands.checks.has_permissions(administrator=True)
+async def reset_name(interaction: discord.Interaction, new_name: str):
+    """Botの名前をリセット/変更するコマンド"""
+    try:
+        await bot.user.edit(username=new_name)
+        await interaction.response.send_message(f"Botの名前を `{new_name}` に変更しました。")
+    except Exception as e:
+        await interaction.response.send_message(f"エラーが発生しました: {e}")
+
 keep_alive()
-
-# Bot起動（環境変数の名前をDISCORD_BOT_TOKENに合わせる）
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
