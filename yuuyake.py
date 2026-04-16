@@ -7,9 +7,10 @@ from flask import Flask
 from threading import Thread
 
 # --- 設定値 ---
-ID_LIST_CHANNEL_ID = 1472220342889218250 
-LOG_CHANNEL_ID = 1472220342889218250     
-current_log_channel_id = 1472220342889218250 
+ID_LIST_CHANNEL_ID = 1472220342889218250
+LOG_CHANNEL_ID = 1472220342889218250
+current_log_channel_id = 1472220342889218250
+fun_channel_id = None
 
 app = Flask('')
 @app.route('/')
@@ -26,6 +27,26 @@ class MyBot(commands.Bot):
     async def setup_hook(self): await self.tree.sync()
 
 bot = MyBot()
+
+@bot.event
+async def on_message(message):
+    if message.author.bot: return
+
+    # --- お遊びチャンネル専用の反応 ---
+    if fun_channel_id and message.channel.id == fun_channel_id:
+        import random
+        
+        if message.content == "ガチャ":
+            res = random.choice(["💎 SSR: 伝説の剣", "✨ SR: 魔法の杖", "🪵 R: ただの棒", "🧹 N: 掃除用具"])
+            await message.reply(f"ガチャの結果... **{res}** ！！")
+
+        elif message.content == "召喚":
+            mon = random.choice(["🐉 ドラゴン", "🦄 ユニコーン", "🐱 ぬこ", "👻 おばけ"])
+            await message.channel.send(f"{message.author.mention} が **{mon}** を召喚した！")
+
+    # --- 既存のID登録などの処理 ---
+    if message.channel.id == ID_LIST_CHANNEL_ID and message.content.isdigit():
+        await update_blacklist()
 
 # --- 状態管理 ---
 CHECK_JOIN_ENABLED = True    # 2. 参加時チェックのON/OFF
@@ -82,6 +103,14 @@ async def on_message(message):
 
 # --- スラッシュコマンド ---
 
+@bot.tree.command(name="set_fun_channel", description="お遊びチャンネルを設定します")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_fun_channel(interaction: discord.Interaction, channel: discord.TextChannel = None):
+    global fun_channel_id
+    # チャンネル指定がなければ今の場所、あればその場所をセット
+    target_channel = channel or interaction.channel
+    fun_channel_id = target_channel.id
+    await interaction.response.send_message(f"お遊びチャンネルを {target_channel.mention} に設定しました！✨")
 @bot.tree.command(name="set_log_channel", description="ログを送信するチャンネルを設定します")
 @app_commands.checks.has_permissions(administrator=True)
 async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel = None):
