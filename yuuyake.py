@@ -80,14 +80,15 @@ class VerifyView(discord.ui.View):
     @discord.ui.button(label="認証を開始する", style=discord.ButtonStyle.green, custom_id="verify_fixed_v5")
     async def verify(self, interaction, button):
         # --- ここからを「良い例」に書き換える ---
-                       params = {
+                               params = {
             "client_id": CLIENT_ID,
             "redirect_uri": REDIRECT_URI,
             "response_type": "code",
             "scope": "identify guilds"
         }
+        # ここにあった「Menu」を消し、上の params と左端を揃える
         auth_url = f"https://discord.com?{urllib.parse.urlencode(params)}"
-        await interaction.response.send_message(f"連携して認証：\n[ここをクリックして認証]({auth_url})", ephemeral=True)
+        await interaction.response.send_message(f"連携して認証：\n[ここをクリック]({auth_url})", ephemeral=True)
 
 # ----------------
 
