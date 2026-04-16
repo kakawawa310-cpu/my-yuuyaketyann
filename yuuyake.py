@@ -8,11 +8,8 @@ import requests
 from flask import Flask, request
 from threading import Thread
 
-# --- 設定（定数） ---
-# --- 修正後の設定 ---
 CLIENT_ID = "1489974962730307707"
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-# ここを https://onrender.com ではなく、必ず callback まで含めて書く
 REDIRECT_URI = "https://onrender.com" 
 
 MY_GUILD_ID = 1176515964561526914
