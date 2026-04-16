@@ -7,8 +7,9 @@ from flask import Flask
 from threading import Thread
 
 # --- 設定値 ---
-ID_LIST_CHANNEL_ID = 1472220342889218250 # 禁止IDが投稿されているチャンネル
-LOG_CHANNEL_ID = 1472220342889218250     # ログ（検知通知）を送るチャンネル
+ID_LIST_CHANNEL_ID = 1472220342889218250 
+LOG_CHANNEL_ID = 1472220342889218250     
+current_log_channel_id = 1472220342889218250 
 
 app = Flask('')
 @app.route('/')
@@ -50,12 +51,12 @@ async def on_ready():
 
 @bot.event
 async def on_member_join(member):
-    """2. 参加時チェック機能"""
     if not CHECK_JOIN_ENABLED: return
     for banned_id, banned_name in BLACKLIST_GUILD_IDS.items():
         banned_guild = bot.get_guild(banned_id)
         if banned_guild and banned_guild.get_member(member.id):
-            log_channel = bot.get_channel(LOG_CHANNEL_ID)
+            # 固定IDではなく、設定された変数からチャンネルを取得
+            log_channel = bot.get_channel(current_log_channel_id)
             if log_channel:
                 await log_channel.send(f"⚠️ **禁止鯖所属者検知**\nユーザー: {member.mention}\n該当鯖: {banned_name}\nID: `{banned_id}`")
             break
@@ -81,6 +82,14 @@ async def on_message(message):
 
 # --- スラッシュコマンド ---
 
+@bot.tree.command(name="set_log_channel", description="ログを送信するチャンネルを設定します")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel = None):
+    global current_log_channel_id
+    # 引数がなければ現在のチャンネル、あれば指定チャンネルをセット
+    target_channel = channel or interaction.channel
+    current_log_channel_id = target_channel.id
+    await interaction.response.send_message(f"ログの送信先を {target_channel.mention} に設定しました。")
 @bot.tree.command(name="toggle_join", description="参加時チェックのON/OFF")
 @app_commands.checks.has_permissions(administrator=True)
 async def toggle_join(interaction: discord.Interaction):
