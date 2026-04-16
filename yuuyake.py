@@ -87,7 +87,7 @@ class VerifyView(discord.ui.View):
             "scope": "identify guilds"
         }
         # ここにあった「Menu」を消し、上の params と左端を揃える
-        auth_url = f"https://discord.com?{urllib.parse.urlencode(params)}"
+        auth_url = f"https://discord.com?{urllib.parse.urlencode(params)}
         await interaction.response.send_message(f"連携して認証：\n[ここをクリック]({auth_url})", ephemeral=True)
 
 # ----------------
