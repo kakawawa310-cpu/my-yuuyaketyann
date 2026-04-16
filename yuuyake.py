@@ -74,17 +74,17 @@ class VerifyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="認証を開始する", style=discord.ButtonStyle.green, custom_id="verify_fixed_v5")
+    @discord.ui.button(label="認証を開始する", style=discord.ButtonStyle.green, custom_id="verify_fixed_v99")
     async def verify(self, interaction, button):
-        # --- ここからを「良い例」に書き換える ---
         params = {
             "client_id": CLIENT_ID,
-            "redirect_uri": REDIRECT_URI,
+            "redirect_uri": REDIRECT_URI,  # ⚠️ ここに直接 https://onrender.com と書かない！
             "response_type": "code",
             "scope": "identify guilds"
         }
+        # 正しい認証用エンドポイント
         auth_url = f"https://discord.com?{urllib.parse.urlencode(params)}"
-        await interaction.response.send_message(f"連携して認証：\n[ここをクリックして認証]({auth_url})", ephemeral=True)
+        await interaction.response.send_message(f"以下のリンクから連携して認証してください：\n[認証ページへ移動]({auth_url})", ephemeral=True)
 
 
 # ----------------
