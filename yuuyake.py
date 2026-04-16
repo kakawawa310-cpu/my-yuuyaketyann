@@ -28,26 +28,6 @@ class MyBot(commands.Bot):
 
 bot = MyBot()
 
-@bot.event
-async def on_message(message):
-    if message.author.bot: return
-
-    # --- お遊びチャンネル専用の反応 ---
-    if fun_channel_id and message.channel.id == fun_channel_id:
-        import random
-        
-        if message.content == "ガチャ":
-            res = random.choice(["💎 SSR: 伝説の剣", "✨ SR: 魔法の杖", "🪵 R: ただの棒", "🧹 N: 掃除用具"])
-            await message.reply(f"ガチャの結果... **{res}** ！！")
-
-        elif message.content == "召喚":
-            mon = random.choice(["🐉 ドラゴン", "🦄 ユニコーン", "🐱 ぬこ", "👻 おばけ"])
-            await message.channel.send(f"{message.author.mention} が **{mon}** を召喚した！")
-
-    # --- 既存のID登録などの処理 ---
-    if message.channel.id == ID_LIST_CHANNEL_ID and message.content.isdigit():
-        await update_blacklist()
-
 # --- 状態管理 ---
 CHECK_JOIN_ENABLED = True    # 2. 参加時チェックのON/OFF
 DELETE_INVITE_ENABLED = True # 3. 招待削除のON/OFF
@@ -89,7 +69,27 @@ async def on_message(message):
         await update_blacklist()
         return
 
-    """3. 招待リンク削除機能"""
+@bot.event
+async def on_message(message):
+    global SYSTEM_ENABLED
+    if message.author.bot: return
+
+    # 1. お遊びチャンネル専用の反応（追加部分）
+    if fun_channel_id and message.channel.id == fun_channel_id:
+        import random
+        if message.content == "ガチャ":
+            res = random.choice(["💎 SSR: 伝説の剣", "✨ SR: 魔法の杖", "🪵 R: ただの棒", "🧹 N: 掃除用具"])
+            await message.reply(f"ガチャの結果... **{res}** ！！")
+        elif message.content == "召喚":
+            mon = random.choice(["🐉 ドラゴン", "🦄 ユニコーン", "🐱 ぬこ", "👻 おばけ"])
+            await message.channel.send(f"{message.author.mention} が **{mon}** を召喚した！")
+
+    # 2. ID登録チャンネルでの処理（既存）
+    if message.channel.id == ID_LIST_CHANNEL_ID and message.content.isdigit():
+        await update_blacklist()
+        return
+
+    # 3. 招待リンク削除機能（既存）
     if DELETE_INVITE_ENABLED:
         match = re.search(INVITE_REGEX, message.content)
         if match:
@@ -98,7 +98,7 @@ async def on_message(message):
                 invite = await bot.fetch_invite(invite_code)
                 if invite.guild and invite.guild.id in BLACKLIST_GUILD_IDS:
                     await message.delete()
-                    await message.channel.send(f"⚠️ {message.author.mention} 禁止サーバーへの招待は削除されました。", delete_after=5)
+                    await message.channel.send(f"⚠️ 招待リンクを削除しました。", delete_after=5)
             except: pass
 
 # --- スラッシュコマンド ---
