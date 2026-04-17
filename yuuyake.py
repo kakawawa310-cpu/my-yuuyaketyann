@@ -68,22 +68,16 @@ async def on_message(message):
     if message.author.bot: return
 
     # 1. お遊びチャンネル専用の反応
+    if fun_channel_id and message.channel.id == fun_channel_id:
         if message.content == "ガチャ":
-            # 景品リスト
             prizes = ["💎 SSR: 伝説の剣", "✨ SR: 魔法の杖", "🪵 R: ただの棒", "🧹 N: 掃除用具"]
-            # 出現確率の重み（合計100になるように設定）
-            # SSR: 2%, SR: 8%, R: 30%, N: 60%
             weights = [2, 8, 30, 60]
-            
             res = random.choices(prizes, weights=weights)[0]
             await message.reply(f"ガチャの結果... **{res}** ！！")
-        elif message.content == "召喚":
-            # 召喚対象リスト
-            monsters = ["✨ 伝説の神獣", "🐉 ドラゴン", "🐺 ウルフ", "🐱 ぬこ", "💧 スライム"]
-            # 出現確率（重み）
-            # 神獣: 1%, ドラゴン: 4%, ウルフ: 15%, ぬこ: 40%, スライム: 40%
-            m_weights = [1, 4, 15, 40, 40]
             
+        elif message.content == "召喚":
+            monsters = ["✨ 伝説の神獣", "🐉 ドラゴン", "🐺 ウルフ", "🐱 ぬこ", "💧 スライム"]
+            m_weights = [1, 4, 15, 40, 40]
             res = random.choices(monsters, weights=m_weights)[0]
             await message.channel.send(f"{message.author.mention} が **{res}** を召喚した！")
 
