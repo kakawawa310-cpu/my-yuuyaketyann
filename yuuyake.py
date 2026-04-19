@@ -15,7 +15,6 @@ channel_fun_modes = {}
 user_inventory = {}
 battle_log_messages = {}
 
-
 app = Flask('')
 @app.route('/')
 def home(): return "Bot is alive!"
@@ -226,17 +225,27 @@ class ChallengeView(discord.ui.View):
 
 
 # パネル設置コマンド
-@bot.tree.command(name="setup_battle_field", description="対戦パネルと最新ログ欄を設置します")
+@bot.tree.command(name="setup_battle_field", description="パネルと最新ログ更新場所を設置します")
 @app_commands.checks.has_permissions(administrator=True)
-async def setup_battle_field(interaction: discord.Interaction):
-    # まず募集パネルを送信
-    await interaction.channel.send("🛡️ **コロシアム**\nここで対戦相手を募集しよう！", view=BattleRecruitView())
+@app_commands.describe(log_channel="最新の対戦結果を表示・更新し続けるチャンネル")
+async def setup_battle_field(interaction: discord.Interaction, log_channel: discord.TextChannel = None):
+    # 1. パネルを設置（コマンドを打った場所）
+    await interaction.channel.send(
+        "🛡️ **コロシアム**\nここで対戦相手を募集しよう！", 
+        view=BattleRecruitView()
+    )
     
-    # 次に「最新ログ表示用」のメッセージを送信し、IDを保存する
-    log_msg = await interaction.channel.send("📝 **最新の戦闘記録**\n(まだ対戦データはありません)")
+    # 2. 最新ログ表示メッセージを設置（指定されたチャンネル）
+    target_channel = log_channel or interaction.channel
+    log_msg = await target_channel.send("📝 **最新の戦闘記録**\n(まだ対戦データはありません)")
+    
+    # 設置したチャンネルID（パネル側）に、更新するメッセージを紐付ける
     battle_log_messages[interaction.channel.id] = log_msg
     
-    await interaction.response.send_message("対戦パネルと最新ログ欄を設置しました。", ephemeral=True)
+    await interaction.response.send_message(
+        f"設置完了！\nパネル: {interaction.channel.mention}\n最新ログ更新先: {target_channel.mention}", 
+        ephemeral=True
+    )
 
 @bot.tree.command(name="fun_mode", description="このチャンネルのお遊びモードを設定します")
 @app_commands.describe(mode="モードを選択してください")
