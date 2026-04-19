@@ -13,6 +13,8 @@ current_log_channel_id = 1472220342889218250
 fun_channel_id = None
 channel_fun_modes = {} 
 user_inventory = {}
+battle_log_messages = {}
+
 
 app = Flask('')
 @app.route('/')
@@ -134,20 +136,58 @@ class BattleRecruitView(discord.ui.View):
         # 対戦開始
         import random
 
+class ChallengeView(discord.ui.View):
+    def __init__(self, host, host_item):
+        super().__init__(timeout=300)
+        self.host = host
+        self.host_item = host_item
+
+    @discord.ui.button(label="この人に挑む！", style=discord.ButtonStyle.danger)
+    async def challenge(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id == self.host.id:
+            return await interaction.response.send_message("自分には挑めません！", ephemeral=True)
+        
+        guest_item = user_inventory.get(interaction.user.id)
+        if not guest_item:
+            return await interaction.response.send_message("アイテムを持っていません！", ephemeral=True)
+
+        winner = random.choice([self.host, interaction.user])
+        result_msg = (
+            f"⚔️ **対戦終了** ⚔️\n"
+            f"🔵 {self.host.mention} ({self.host_item})\n"
+            f"   vs\n"
+            f"🔴 {interaction.user.mention} ({guest_item})\n\n"
+            f"🏆 勝者: **{winner.mention}** ！"
+        )
+        
+        # 1. 募集メッセージを結果に書き換える
+        await interaction.response.edit_message(content=result_msg, view=None)
+
+        # 2. 【新機能】専用のログ表示メッセージを更新する
+        log_display = battle_log_messages.get(interaction.channel.id)
+        if log_display:
+            try:
+                await log_display.edit(content=f"📝 **最新の戦闘記録**\n{result_msg}")
+            except:
+                pass # メッセージが消されていた場合などは無視
+
+        # 3. 従来の全体ログ（記録用）にも送信
+        log_channel = bot.get_channel(current_log_channel_id)
+        if log_channel:
+            await log_channel.send(f"📋 **システムログ**\n{result_msg}")
+
 class BattleRecruitView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    # 1. 募集をかけるボタン
-    @discord.ui.button(label="対戦を募集する", style=discord.ButtonStyle.primary, custom_id="recruit_start")
+    @discord.ui.button(label="対戦を募集する", style=discord.ButtonStyle.primary, custom_id="recruit_start_v2")
     async def recruit(self, interaction: discord.Interaction, button: discord.ui.Button):
         item = user_inventory.get(interaction.user.id)
         if not item:
-            return await interaction.response.send_message("先にガチャか召喚をしてアイテムを手に入れてください！", ephemeral=True)
+            return await interaction.response.send_message("アイテムが必要です！", ephemeral=True)
         
-        # 募集メッセージを出し、そこに「挑む」ボタンがついたViewを渡す
         view = ChallengeView(host=interaction.user, host_item=item)
-        await interaction.response.send_message(f"⚔️ {interaction.user.mention} が対戦相手を募集中！ (使用: {item})", view=view)
+        await interaction.response.send_message(f"⚔️ {interaction.user.mention} が募集中！", view=view)
 
 # 2. 挑む側のボタン専用View（ここを分離することでエラーを防ぎます）
 class ChallengeView(discord.ui.View):
@@ -186,10 +226,17 @@ class ChallengeView(discord.ui.View):
 
 
 # パネル設置コマンド
-@bot.tree.command(name="setup_battle_field", description="対戦募集パネルを設置します")
+@bot.tree.command(name="setup_battle_field", description="対戦パネルと最新ログ欄を設置します")
+@app_commands.checks.has_permissions(administrator=True)
 async def setup_battle_field(interaction: discord.Interaction):
-    await interaction.channel.send("🛡️ **コロシアムへようこそ**\n武器やモンスターを持っているなら、ここで対戦相手を募集しよう！", view=BattleRecruitView())
-    await interaction.response.send_message("対戦パネルを設置しました。", ephemeral=True)
+    # まず募集パネルを送信
+    await interaction.channel.send("🛡️ **コロシアム**\nここで対戦相手を募集しよう！", view=BattleRecruitView())
+    
+    # 次に「最新ログ表示用」のメッセージを送信し、IDを保存する
+    log_msg = await interaction.channel.send("📝 **最新の戦闘記録**\n(まだ対戦データはありません)")
+    battle_log_messages[interaction.channel.id] = log_msg
+    
+    await interaction.response.send_message("対戦パネルと最新ログ欄を設置しました。", ephemeral=True)
 
 @bot.tree.command(name="fun_mode", description="このチャンネルのお遊びモードを設定します")
 @app_commands.describe(mode="モードを選択してください")
