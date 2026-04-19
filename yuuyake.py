@@ -11,6 +11,7 @@ from threading import Thread
 ID_LIST_CHANNEL_ID = 1472220342889218250
 current_log_channel_id = 1472220342889218250
 fun_channel_id = None
+channel_fun_modes = {} 
 
 app = Flask('')
 @app.route('/')
@@ -63,30 +64,33 @@ async def on_member_join(member):
             break
 
 # --- ここを1つにまとめました ---
+    # 1. お遊びチャンネル専用の反応
 @bot.event
 async def on_message(message):
     if message.author.bot: return
 
-    # 1. お遊びチャンネル専用の反応
-    if fun_channel_id and message.channel.id == fun_channel_id:
-        if message.content == "ガチャ":
+    # 1. お遊び機能（モード判定）
+    mode = channel_fun_modes.get(message.channel.id)
+    if mode:
+        import random
+        # ガチャの判定
+        if (mode == "all" or mode == "gacha") and message.content == "ガチャ":
             prizes = ["💎 SSR: 伝説の剣", "✨ SR: 魔法の杖", "🪵 R: ただの棒", "🧹 N: 掃除用具"]
-            weights = [2, 8, 30, 60]
-            res = random.choices(prizes, weights=weights)[0]
+            res = random.choices(prizes, weights=[2, 8, 30, 60])[0]
             await message.reply(f"ガチャの結果... **{res}** ！！")
-            
-        elif message.content == "召喚":
+
+        # 召喚の判定
+        elif (mode == "all" or mode == "summon") and message.content == "召喚":
             monsters = ["✨ 伝説の神獣", "🐉 ドラゴン", "🐺 ウルフ", "🐱 ぬこ", "💧 スライム"]
-            m_weights = [1, 4, 15, 40, 40]
-            res = random.choices(monsters, weights=m_weights)[0]
+            res = random.choices(monsters, weights=[1, 4, 15, 40, 40])[0]
             await message.channel.send(f"{message.author.mention} が **{res}** を召喚した！")
 
-    # 2. ID登録チャンネルでの処理
+    # 2. ID登録処理（既存）
     if message.channel.id == ID_LIST_CHANNEL_ID and message.content.isdigit():
         await update_blacklist()
         return
 
-    # 3. 招待リンク削除機能
+    # 3. 招待リンク削除機能（既存）
     if DELETE_INVITE_ENABLED:
         match = re.search(INVITE_REGEX, message.content)
         if match:
@@ -100,21 +104,25 @@ async def on_message(message):
 
 # --- スラッシュコマンド ---
 
-@bot.tree.command(name="set_fun_channel", description="お遊びチャンネルを設定します")
+@bot.tree.command(name="fun_mode", description="このチャンネルのお遊びモードを設定します")
+@app_commands.describe(mode="モードを選択してください")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="両方有効", value="all"),
+    app_commands.Choice(name="ガチャのみ", value="gacha"),
+    app_commands.Choice(name="召喚のみ", value="summon"),
+    app_commands.Choice(name="無効（解除）", value="off")
+])
 @app_commands.checks.has_permissions(administrator=True)
-async def set_fun_channel(interaction: discord.Interaction, channel: discord.TextChannel = None):
-    global fun_channel_id
-    target_channel = channel or interaction.channel
-    fun_channel_id = target_channel.id
-    await interaction.response.send_message(f"お遊びチャンネルを {target_channel.mention} に設定しました！✨")
-
-@bot.tree.command(name="set_log_channel", description="ログを送信するチャンネルを設定します")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel = None):
-    global current_log_channel_id
-    target_channel = channel or interaction.channel
-    current_log_channel_id = target_channel.id
-    await interaction.response.send_message(f"ログの送信先を {target_channel.mention} に設定しました。")
+async def fun_mode(interaction: discord.Interaction, mode: str):
+    global channel_fun_modes
+    if mode == "off":
+        if interaction.channel.id in channel_fun_modes:
+            del channel_fun_modes[interaction.channel.id]
+        await interaction.response.send_message("このチャンネルのお遊び機能を**解除**しました。")
+    else:
+        channel_fun_modes[interaction.channel.id] = mode
+        mode_name = {"all": "両方", "gacha": "ガチャのみ", "summon": "召喚のみ"}[mode]
+        await interaction.response.send_message(f"このチャンネルを **{mode_name}** モードに設定しました！")
 
 @bot.tree.command(name="toggle_join", description="参加時チェックのON/OFF")
 @app_commands.checks.has_permissions(administrator=True)
