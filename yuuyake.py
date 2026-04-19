@@ -133,22 +133,57 @@ class BattleRecruitView(discord.ui.View):
 
         # 対戦開始
         import random
-        host_item = user_inventory[self.host.id]
+
+class BattleRecruitView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    # 1. 募集をかけるボタン
+    @discord.ui.button(label="対戦を募集する", style=discord.ButtonStyle.primary, custom_id="recruit_start")
+    async def recruit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        item = user_inventory.get(interaction.user.id)
+        if not item:
+            return await interaction.response.send_message("先にガチャか召喚をしてアイテムを手に入れてください！", ephemeral=True)
+        
+        # 募集メッセージを出し、そこに「挑む」ボタンがついたViewを渡す
+        view = ChallengeView(host=interaction.user, host_item=item)
+        await interaction.response.send_message(f"⚔️ {interaction.user.mention} が対戦相手を募集中！ (使用: {item})", view=view)
+
+# 2. 挑む側のボタン専用View（ここを分離することでエラーを防ぎます）
+class ChallengeView(discord.ui.View):
+    def __init__(self, host, host_item):
+        super().__init__(timeout=300) # 5分間有効
+        self.host = host
+        self.host_item = host_item
+
+    @discord.ui.button(label="この人に挑む！", style=discord.ButtonStyle.danger)
+    async def challenge(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id == self.host.id:
+            return await interaction.response.send_message("自分には挑めません！", ephemeral=True)
+        
+        guest_item = user_inventory.get(interaction.user.id)
+        if not guest_item:
+            return await interaction.response.send_message("対戦するにはアイテムが必要です！", ephemeral=True)
+
+        # 勝敗判定
         winner = random.choice([self.host, interaction.user])
         
         result_msg = (
             f"⚔️ **対戦終了** ⚔️\n"
-            f"🔵 {self.host.mention} ({host_item})\n"
+            f"🔵 {self.host.mention} ({self.host_item})\n"
             f"   vs\n"
             f"🔴 {interaction.user.mention} ({guest_item})\n\n"
             f"🏆 勝者: **{winner.mention}** ！"
         )
+        
+        # メッセージを更新してボタンを消す
         await interaction.response.edit_message(content=result_msg, view=None)
 
         # ログ送信
         log_channel = bot.get_channel(current_log_channel_id)
         if log_channel:
             await log_channel.send(f"📋 **バトルログ**\n場所: {interaction.channel.mention}\n{result_msg}")
+
 
 # パネル設置コマンド
 @bot.tree.command(name="setup_battle_field", description="対戦募集パネルを設置します")
