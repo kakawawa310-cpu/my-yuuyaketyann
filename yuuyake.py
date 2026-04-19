@@ -1,138 +1,137 @@
 import discord
-from discord.ext import commands
-from discord import app_commands
 import random
 import os
 import re
+from discord.ext import commands
+from discord import app_commands
 from flask import Flask
 from threading import Thread
 
-# --- Render用: Webサーバー ---
+# Renderのポート監視をパスするためのダミーサーバー
 app = Flask('')
+
 @app.route('/')
-def home(): return "Bot is running!"
-def run(): app.run(host='0.0.0.0', port=8080)
+def home():
+    return "Bot is running!"
+
+def run_web():
+    # Renderは環境変数 PORT を指定してくるので、それに合わせる
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
 def keep_alive():
-    t = Thread(target=run)
+    t = Thread(target=run_web)
+    t.daemon = True # Botが終了したときに一緒に終了するようにする
     t.start()
 
-# --- データ・確率設定 ---
-GACHA_DATA = {
-    "UR": {"prob": 3, "items": ["🔥神焔の騎士", "❄️絶対零度の魔女"]},
-    "SSR": {"prob": 7, "items": ["⚔️勇者の剣", "🛡️伝説の盾"]},
-    "SR": {"prob": 20, "items": ["🏹熟練の弓兵", "🧪魔力の雫"]},
-    "R": {"prob": 70, "items": ["🗡️見習い剣士", "🍞回復パン"]}
-}
-SUMMON_DATA = {
-    "UR": {"prob": 3, "items": ["🐉創世竜バハムート", "😇大天使ミカエル"]},
-    "SSR": {"prob": 7, "items": ["🦁キングキマイラ", "🔥フェニックス"]},
-    "SR": {"prob": 20, "items": ["🐺人狼", "🌑シャドウナイト"]},
-    "R": {"prob": 70, "items": ["🟢スライム", "💀スケルトン"]}
+# --- 設定データ ---
+GACHA_TABLE = {
+    "SSR": (["[極] 聖騎士アーサー", "[極] 闇の魔導師"], 3),
+    "SR":  (["伝説の剣", "守護者の鎧", "癒やしの杖"], 12),
+    "R":   (["鋼の剣", "鉄の盾", "魔力の小瓶"], 35),
+    "N":   (["ひのきのぼう", "布の服", "ただの石"], 50)
 }
 
-# --- Bot初期設定 ---
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+SUMMON_TABLE = {
+    "SSR": (["神獣フェニックス", "冥王ハデス"], 1),
+    "SR":  (["ワイバーン", "エルフの弓兵"], 9),
+    "R":   (["オーク", "ゴブリンリーダー"], 30),
+    "N":   (["スライム", "コウモリ"], 60)
+}
 
-# サーバーごとの設定保存用
-server_settings = {} 
-# 構造例: {guild_id: {"gacha": bool, "summon": bool, "anti_invite": bool, "target_user_id": int, "log_channel_id": int}}
+def pull_lottery(table):
+    rarities = list(table.keys())
+    weights = [data[1] for data in table.values()]
+    chosen_rarity = random.choices(rarities, weights=weights)[0]
+    item = random.choice(table[chosen_rarity][0])
+    return chosen_rarity, item
 
-def get_settings(guild_id):
-    return server_settings.get(guild_id, {"gacha": False, "summon": False, "anti_invite": False, "target_user_id": None, "log_channel_id": None})
-
-# --- コロシアム View ---
-class ColiseumView(discord.ui.View):
+class MyBot(commands.Bot):
     def __init__(self):
-        super().__init__(timeout=None)
+        intents = discord.Intents.default()
+        intents.members = True
+        intents.message_content = True # メッセージの内容を読み取るために必須
+        super().__init__(command_prefix="!", intents=intents)
+        self.channel_configs = {} # {channel_id: mode}
 
-    @discord.ui.button(label="⚔️ 参戦", style=discord.ButtonStyle.danger, custom_id="join_battle")
-    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
-        settings = get_settings(interaction.guild_id)
-        
-        # 特定ユーザーの参戦通知
-        if settings["target_user_id"] == interaction.user.id and settings["log_channel_id"]:
-            log_chan = interaction.guild.get_channel(settings["log_channel_id"])
-            if log_chan:
-                await log_chan.send(f"📢 注目！特定ユーザー {interaction.user.mention} がコロシアムに参戦しました！")
+    async def setup_hook(self):
+        await self.tree.sync()
 
-        result = random.choice(["勝利！🎉", "敗北...💀"])
-        await interaction.response.send_message(f"{interaction.user.mention} の対戦結果: **{result}**", ephemeral=False)
+bot = MyBot()
 
-# --- スラッシュコマンド ---
-
-@bot.tree.command(name="roulette_mode", description="ガチャと召喚の有効/無効を設定")
+# --- 設定用スラッシュコマンド ---
+@bot.tree.command(name="config", description="このチャンネルの機能を設定します")
 @app_commands.choices(mode=[
     app_commands.Choice(name="ガチャのみ", value="gacha"),
     app_commands.Choice(name="召喚のみ", value="summon"),
     app_commands.Choice(name="両方", value="both"),
-    app_commands.Choice(name="解除", value="off"),
+    app_commands.Choice(name="解除", value="none")
 ])
-async def roulette_mode(interaction: discord.Interaction, mode: str):
-    settings = get_settings(interaction.guild_id)
-    if mode == "gacha": settings.update({"gacha": True, "summon": False})
-    elif mode == "summon": settings.update({"gacha": False, "summon": True})
-    elif mode == "both": settings.update({"gacha": True, "summon": True})
-    else: settings.update({"gacha": False, "summon": False})
-    
-    server_settings[interaction.guild_id] = settings
-    await interaction.response.send_message(f"ルーレット設定を「{mode}」に変更しました。")
+async def config(interaction: discord.Interaction, mode: str):
+    bot.channel_configs[interaction.channel_id] = mode
+    mode_text = {"gacha": "ガチャ", "summon": "召喚", "both": "ガチャ＆召喚", "none": "解除"}[mode]
+    await interaction.response.send_message(f"✅ 設定完了: このチャンネルは **{mode_text}** モードになりました。")
 
-@bot.tree.command(name="config_notify", description="特定ユーザーの参戦をログに通知する設定")
-async def config_notify(interaction: discord.Interaction, user_id: str, log_channel: discord.TextChannel):
-    settings = get_settings(interaction.guild_id)
-    settings.update({"target_user_id": int(user_id), "log_channel_id": log_channel.id})
-    server_settings[interaction.guild_id] = settings
-    await interaction.response.send_message(f"ID:{user_id} の参戦通知を {log_channel.mention} に設定しました。")
-
-@bot.tree.command(name="config_antidiscord", description="招待URLの自動削除設定")
-@app_commands.choices(status=[
-    app_commands.Choice(name="有効", value="on"),
-    app_commands.Choice(name="無効", value="off"),
-])
-async def config_antidiscord(interaction: discord.Interaction, status: str):
-    settings = get_settings(interaction.guild_id)
-    settings["anti_invite"] = (status == "on")
-    server_settings[interaction.guild_id] = settings
-    await interaction.response.send_message(f"招待URL自動削除を「{status}」にしました。")
-
-@bot.tree.command(name="setup_coliseum", description="指定したチャンネルに募集パネルを設置")
-async def setup_coliseum(interaction: discord.Interaction, channel: discord.TextChannel):
-    embed = discord.Embed(title="🏟️ コロシアム開催", description="参戦ボタンを押してください！", color=0xff0000)
-    await channel.send(embed=embed, view=ColiseumView())
-    await interaction.response.send_message(f"{channel.mention} にパネルを設置。", ephemeral=True)
-
-# --- イベント処理 ---
+# --- メッセージ反応セクション ---
 @bot.event
 async def on_message(message):
-    if message.author.bot or not message.guild: return
-    settings = get_settings(message.guild.id)
+    if message.author.bot: return
 
-    # 招待URL削除機能 (discord.gg/...)
-    if settings["anti_invite"]:
-        if re.search(r'(discord.gg/|://discord.com)', message.content):
-            await message.delete()
-            await message.channel.send(f"{message.author.mention} 招待URLの送信は禁止されています。", delete_after=5)
-            return
-
-    # ガチャ・召喚反応
-    if message.content == "ガチャ" and settings["gacha"]:
-        rarity = random.choices(list(GACHA_DATA.keys()), weights=[d["prob"] for d in GACHA_DATA.values()])[0]
-        item = random.choice(GACHA_DATA[rarity]["items"])
-        await message.reply(f"【{rarity}】✨ {item} ✨")
+    # 1. 招待リンク監視 (前回の機能)
+    LOG_CHANNEL_ID = 1472220342889218250
+    SOURCE_GUILD_ID = 1176515964561526914
     
-    if message.content == "召喚" and settings["summon"]:
-        rarity = random.choices(list(SUMMON_DATA.keys()), weights=[d["prob"] for d in SUMMON_DATA.values()])[0]
-        item = random.choice(SUMMON_DATA[rarity]["items"])
-        await message.reply(f"【{rarity}】🌀 {item} 🌀")
+    if "discord.gg/" in message.content or "discord.com/invite/" in message.content:
+        invites = re.findall(r'(?:discord\.gg/|discord\.com/invite/)([\w-]+)', message.content)
+        for code in invites:
+            try:
+                invite = await bot.fetch_invite(code)
+                if invite.guild and invite.guild.id == SOURCE_GUILD_ID:
+                    await message.delete()
+                    log_ch = bot.get_channel(LOG_CHANNEL_ID)
+                    if log_ch:
+                        await log_ch.send(f"🚫 **招待削除**: {message.author.mention} が {invite.guild.name} & {SOURCE_GUILD_ID} の招待を貼ったため削除しました。")
+            except: continue
+
+    # 2. ガチャ・召喚の単語反応
+    mode = bot.channel_configs.get(message.channel.id, "none")
+    
+    # ガチャに反応
+    if "ガチャ" in message.content:
+        if mode in ["gacha", "both"]:
+            rarity, item = pull_lottery(GACHA_TABLE)
+            color = 0xffd700 if rarity == "SSR" else 0xadd8e6
+            embed = discord.Embed(title="🎲 ガチャ結果", description=f"{message.author.mention}さんの結果\n**[{rarity}]** {item}", color=color)
+            await message.channel.send(embed=embed)
+        elif mode != "none": # モード設定はあるがガチャが許可されていない場合
+            pass 
+
+    # 召喚に反応
+    if "召喚" in message.content:
+        if mode in ["summon", "both"]:
+            rarity, item = pull_lottery(SUMMON_TABLE)
+            embed = discord.Embed(title="🪄 召喚完了", description=f"{message.author.mention}が呼び出した！\n**[{rarity}]** {item}", color=0x9400d3)
+            await message.channel.send(embed=embed)
 
     await bot.process_commands(message)
 
+# --- 入室監視 ---
 @bot.event
-async def on_ready():
-    await bot.tree.sync()
-    print(f"Logged in: {bot.user}")
+async def on_member_join(member):
+    SOURCE_GUILD_ID = 1176515964561526914
+    LOG_CHANNEL_ID = 1472220342889218250
+    source_guild = bot.get_guild(SOURCE_GUILD_ID)
+    if source_guild:
+        target_user = source_guild.get_member(member.id)
+        if target_user:
+            log_ch = bot.get_channel(LOG_CHANNEL_ID)
+            if log_ch:
+                await log_ch.send(f"⚠️ **入室通知**: {member.mention} は 「{source_guild.name} & {SOURCE_GUILD_ID}」 に参加しているユーザーです。")
 
-keep_alive()
-bot.run(os.getenv("DISCORD_BOT_TOKEN"))
+if __name__ == "__main__":
+    # Webサーバーを起動
+    keep_alive()
+    
+    # Botを起動
+    TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+    bot.run(TOKEN)
