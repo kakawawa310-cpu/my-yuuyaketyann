@@ -7,7 +7,7 @@ from discord import app_commands
 from flask import Flask
 from threading import Thread
 
-# Renderのポート監視をパスするためのダミーサーバー
+# --- ダミーサーバー設定 ---
 app = Flask('')
 
 @app.route('/')
@@ -15,16 +15,15 @@ def home():
     return "Bot is running!"
 
 def run_web():
-    # Renderは環境変数 PORT を指定してくるので、それに合わせる
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     t = Thread(target=run_web)
-    t.daemon = True # Botが終了したときに一緒に終了するようにする
+    t.daemon = True
     t.start()
 
-# --- 設定データ ---
+# --- ガチャデータ ---
 GACHA_TABLE = {
     "SSR": (["[極] 聖騎士アーサー", "[極] 闇の魔導師"], 3),
     "SR":  (["伝説の剣", "守護者の鎧", "癒やしの杖"], 12),
@@ -46,21 +45,47 @@ def pull_lottery(table):
     item = random.choice(table[chosen_rarity][0])
     return chosen_rarity, item
 
+# --- Botクラス定義 ---
 class MyBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.members = True
-        intents.message_content = True # メッセージの内容を読み取るために必須
+        intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
-        self.channel_configs = {} # {channel_id: mode}
+        
+        # 設定保存用
+        self.channel_configs = {}  # {channel_id: mode}
+        self.log_channel_id = None # ログ出力先
+        self.anti_invite = False   # 招待削除の有効化フラグ
+        self.source_guild_id = 1176515964561526914 # 監視対象サーバーID
 
     async def setup_hook(self):
         await self.tree.sync()
 
 bot = MyBot()
 
-# --- 設定用スラッシュコマンド ---
-@bot.tree.command(name="config", description="このチャンネルの機能を設定します")
+# --- 管理設定コマンド ---
+
+@bot.tree.command(name="setup_admin", description="管理用ログチャンネルと招待削除の有無を設定します")
+@app_commands.describe(channel="ログを出力するチャンネル", anti_invite="招待リンクを削除するかどうか")
+async def setup_admin(interaction: discord.Interaction, channel: discord.TextChannel, anti_invite: bool):
+    # 本来は管理者権限チェックを入れるのが望ましい
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ このコマンドは管理者のみ実行できます。", ephemeral=True)
+        return
+
+    bot.log_channel_id = channel.id
+    bot.anti_invite = anti_invite
+    
+    status = "有効" if anti_invite else "無効"
+    await interaction.response.send_message(
+        f"✅ 設定を更新しました。\n"
+        f"**ログチャンネル:** {channel.mention}\n"
+        f"**招待リンク自動削除:** {status}"
+    )
+
+# --- ガチャ設定コマンド ---
+@bot.tree.command(name="config", description="このチャンネルのガチャ/召喚機能を設定します")
 @app_commands.choices(mode=[
     app_commands.Choice(name="ガチャのみ", value="gacha"),
     app_commands.Choice(name="召喚のみ", value="summon"),
@@ -77,61 +102,50 @@ async def config(interaction: discord.Interaction, mode: str):
 async def on_message(message):
     if message.author.bot: return
 
-    # 1. 招待リンク監視 (前回の機能)
-    LOG_CHANNEL_ID = 1472220342889218250
-    SOURCE_GUILD_ID = 1176515964561526914
-    
-    if "discord.gg/" in message.content or "discord.com/invite/" in message.content:
-        invites = re.findall(r'(?:discord\.gg/|discord\.com/invite/)([\w-]+)', message.content)
-        for code in invites:
-            try:
-                invite = await bot.fetch_invite(code)
-                if invite.guild and invite.guild.id == SOURCE_GUILD_ID:
-                    await message.delete()
-                    log_ch = bot.get_channel(LOG_CHANNEL_ID)
-                    if log_ch:
-                        await log_ch.send(f"🚫 **招待削除**: {message.author.mention} が {invite.guild.name} & {SOURCE_GUILD_ID} の招待を貼ったため削除しました。")
-            except: continue
+    # 1. 招待リンク監視 (フラグがTrueかつログチャンネルが設定されている場合のみ動作)
+    if bot.anti_invite and bot.log_channel_id:
+        if "discord.gg/" in message.content or "discord.com/invite/" in message.content:
+            invites = re.findall(r'(?:discord\.gg/|discord\.com/invite/)([\w-]+)', message.content)
+            for code in invites:
+                try:
+                    invite = await bot.fetch_invite(code)
+                    if invite.guild and invite.guild.id == bot.source_guild_id:
+                        await message.delete()
+                        log_ch = bot.get_channel(bot.log_channel_id)
+                        if log_ch:
+                            await log_ch.send(f"🚫 **招待削除**: {message.author.mention} が禁止サーバーの招待を貼ったため削除しました。")
+                except: continue
 
-    # 2. ガチャ・召喚の単語反応
+    # 2. ガチャ・召喚の反応
     mode = bot.channel_configs.get(message.channel.id, "none")
     
-    # ガチャに反応
-    if "ガチャ" in message.content:
-        if mode in ["gacha", "both"]:
-            rarity, item = pull_lottery(GACHA_TABLE)
-            color = 0xffd700 if rarity == "SSR" else 0xadd8e6
-            embed = discord.Embed(title="🎲 ガチャ結果", description=f"{message.author.mention}さんの結果\n**[{rarity}]** {item}", color=color)
-            await message.channel.send(embed=embed)
-        elif mode != "none": # モード設定はあるがガチャが許可されていない場合
-            pass 
+    if "ガチャ" in message.content and mode in ["gacha", "both"]:
+        rarity, item = pull_lottery(GACHA_TABLE)
+        color = 0xffd700 if rarity == "SSR" else 0xadd8e6
+        embed = discord.Embed(title="🎲 ガチャ結果", description=f"{message.author.mention}さんの結果\n**[{rarity}]** {item}", color=color)
+        await message.channel.send(embed=embed)
 
-    # 召喚に反応
-    if "召喚" in message.content:
-        if mode in ["summon", "both"]:
-            rarity, item = pull_lottery(SUMMON_TABLE)
-            embed = discord.Embed(title="🪄 召喚完了", description=f"{message.author.mention}が呼び出した！\n**[{rarity}]** {item}", color=0x9400d3)
-            await message.channel.send(embed=embed)
+    if "召喚" in message.content and mode in ["summon", "both"]:
+        rarity, item = pull_lottery(SUMMON_TABLE)
+        embed = discord.Embed(title="🪄 召喚完了", description=f"{message.author.mention}が呼び出した！\n**[{rarity}]** {item}", color=0x9400d3)
+        await message.channel.send(embed=embed)
 
     await bot.process_commands(message)
 
 # --- 入室監視 ---
 @bot.event
 async def on_member_join(member):
-    SOURCE_GUILD_ID = 1176515964561526914
-    LOG_CHANNEL_ID = 1472220342889218250
-    source_guild = bot.get_guild(SOURCE_GUILD_ID)
-    if source_guild:
-        target_user = source_guild.get_member(member.id)
-        if target_user:
-            log_ch = bot.get_channel(LOG_CHANNEL_ID)
-            if log_ch:
-                await log_ch.send(f"⚠️ **入室通知**: {member.mention} は 「{source_guild.name} & {SOURCE_GUILD_ID}」 に参加しているユーザーです。")
+    if bot.log_channel_id:
+        source_guild = bot.get_guild(bot.source_guild_id)
+        if source_guild:
+            # Botがそのサーバーに参加していないとget_memberはNoneを返す可能性があるため注意
+            target_user = source_guild.get_member(member.id)
+            if target_user:
+                log_ch = bot.get_channel(bot.log_channel_id)
+                if log_ch:
+                    await log_ch.send(f"⚠️ **入室通知**: {member.mention} は 「{source_guild.name}」 に参加しているユーザーです。")
 
 if __name__ == "__main__":
-    # Webサーバーを起動
     keep_alive()
-    
-    # Botを起動
     TOKEN = os.getenv('DISCORD_BOT_TOKEN')
     bot.run(TOKEN)
