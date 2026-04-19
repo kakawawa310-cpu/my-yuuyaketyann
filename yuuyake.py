@@ -159,39 +159,12 @@ class ChallengeView(discord.ui.View):
             f"🏆 勝者: **{winner.mention}** ！"
         )
         
-        # 1. 募集メッセージを結果に書き換える
-        await interaction.response.edit_message(content=result_msg, view=None)
+import random
 
-        # 2. 【新機能】専用のログ表示メッセージを更新する
-        log_display = battle_log_messages.get(interaction.channel.id)
-        if log_display:
-            try:
-                await log_display.edit(content=f"📝 **最新の戦闘記録**\n{result_msg}")
-            except:
-                pass # メッセージが消されていた場合などは無視
-
-        # 3. 従来の全体ログ（記録用）にも送信
-        log_channel = bot.get_channel(current_log_channel_id)
-        if log_channel:
-            await log_channel.send(f"📋 **システムログ**\n{result_msg}")
-
-class BattleRecruitView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="対戦を募集する", style=discord.ButtonStyle.primary, custom_id="recruit_start_v2")
-    async def recruit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        item = user_inventory.get(interaction.user.id)
-        if not item:
-            return await interaction.response.send_message("アイテムが必要です！", ephemeral=True)
-        
-        view = ChallengeView(host=interaction.user, host_item=item)
-        await interaction.response.send_message(f"⚔️ {interaction.user.mention} が募集中！", view=view)
-
-# 2. 挑む側のボタン専用View（ここを分離することでエラーを防ぎます）
+# --- 1. 挑む側のボタン専用View ---
 class ChallengeView(discord.ui.View):
     def __init__(self, host, host_item):
-        super().__init__(timeout=300) # 5分間有効
+        super().__init__(timeout=300)
         self.host = host
         self.host_item = host_item
 
@@ -206,7 +179,6 @@ class ChallengeView(discord.ui.View):
 
         # 勝敗判定
         winner = random.choice([self.host, interaction.user])
-        
         result_msg = (
             f"⚔️ **対戦終了** ⚔️\n"
             f"🔵 {self.host.mention} ({self.host_item})\n"
@@ -215,80 +187,60 @@ class ChallengeView(discord.ui.View):
             f"🏆 勝者: **{winner.mention}** ！"
         )
         
-        # メッセージを更新してボタンを消す
+        # [処理1] 募集メッセージを結果に書き換えてボタンを消す
         await interaction.response.edit_message(content=result_msg, view=None)
 
-        # ログ送信
+        # [処理2] 指定されたチャンネルの「最新ログ」を上書き更新する
+        # パネルが置かれたチャンネルIDをキーにしてメッセージを探す
+        log_display = battle_log_messages.get(interaction.channel.id)
+        if log_display:
+            try:
+                await log_display.edit(content=f"📝 **最新の戦闘記録**\n{result_msg}")
+            except:
+                pass # メッセージ削除済み等のエラー回避
+
+        # [処理3] 全体ログ（履歴用）にも送信
         log_channel = bot.get_channel(current_log_channel_id)
         if log_channel:
             await log_channel.send(f"📋 **バトルログ**\n場所: {interaction.channel.mention}\n{result_msg}")
 
+# --- 2. 募集パネル用View ---
+class BattleRecruitView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
 
-# パネル設置コマンド
+    @discord.ui.button(label="対戦を募集する", style=discord.ButtonStyle.primary, custom_id="recruit_start_v2")
+    async def recruit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        item = user_inventory.get(interaction.user.id)
+        if not item:
+            return await interaction.response.send_message("ガチャや召喚でアイテムを手に入れてください！", ephemeral=True)
+        
+        # 挑むボタンがついた新しいメッセージを送信
+        view = ChallengeView(host=interaction.user, host_item=item)
+        await interaction.response.send_message(f"⚔️ {interaction.user.mention} が募集中！ (使用: {item})", view=view)
+
+# --- 3. パネル設置コマンド ---
 @bot.tree.command(name="setup_battle_field", description="パネルと最新ログ更新場所を設置します")
 @app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(log_channel="最新の対戦結果を表示・更新し続けるチャンネル")
+@app_commands.describe(log_channel="最新の対戦結果を更新し続けるチャンネル")
 async def setup_battle_field(interaction: discord.Interaction, log_channel: discord.TextChannel = None):
-    # 1. パネルを設置（コマンドを打った場所）
+    # パネル本体を設置
     await interaction.channel.send(
         "🛡️ **コロシアム**\nここで対戦相手を募集しよう！", 
         view=BattleRecruitView()
     )
     
-    # 2. 最新ログ表示メッセージを設置（指定されたチャンネル）
+    # 最新ログ表示用メッセージを設置
     target_channel = log_channel or interaction.channel
     log_msg = await target_channel.send("📝 **最新の戦闘記録**\n(まだ対戦データはありません)")
     
-    # 設置したチャンネルID（パネル側）に、更新するメッセージを紐付ける
+    # 設置情報を保存（再起動すると消えるので注意）
     battle_log_messages[interaction.channel.id] = log_msg
     
     await interaction.response.send_message(
-        f"設置完了！\nパネル: {interaction.channel.mention}\n最新ログ更新先: {target_channel.mention}", 
+        f"設置完了！\n最新ログ更新先: {target_channel.mention}", 
         ephemeral=True
     )
-
-@bot.tree.command(name="fun_mode", description="このチャンネルのお遊びモードを設定します")
-@app_commands.describe(mode="モードを選択してください")
-@app_commands.choices(mode=[
-    app_commands.Choice(name="両方有効", value="all"),
-    app_commands.Choice(name="ガチャのみ", value="gacha"),
-    app_commands.Choice(name="召喚のみ", value="summon"),
-    app_commands.Choice(name="無効（解除）", value="off")
-])
-@app_commands.checks.has_permissions(administrator=True)
-async def fun_mode(interaction: discord.Interaction, mode: str):
-    global channel_fun_modes
-    if mode == "off":
-        if interaction.channel.id in channel_fun_modes:
-            del channel_fun_modes[interaction.channel.id]
-        await interaction.response.send_message("このチャンネルのお遊び機能を**解除**しました。")
-    else:
-        channel_fun_modes[interaction.channel.id] = mode
-        mode_name = {"all": "両方", "gacha": "ガチャのみ", "summon": "召喚のみ"}[mode]
-        await interaction.response.send_message(f"このチャンネルを **{mode_name}** モードに設定しました！")
-
-@bot.tree.command(name="toggle_join", description="参加時チェックのON/OFF")
-@app_commands.checks.has_permissions(administrator=True)
-async def toggle_join(interaction: discord.Interaction):
-    global CHECK_JOIN_ENABLED
-    CHECK_JOIN_ENABLED = not CHECK_JOIN_ENABLED
-    await interaction.response.send_message(f"参加時チェックを **{'有効' if CHECK_JOIN_ENABLED else '無効'}** にしました。")
-
-@bot.tree.command(name="toggle_invite", description="招待リンク削除のON/OFF")
-@app_commands.checks.has_permissions(administrator=True)
-async def toggle_invite(interaction: discord.Interaction):
-    global DELETE_INVITE_ENABLED
-    DELETE_INVITE_ENABLED = not DELETE_INVITE_ENABLED
-    await interaction.response.send_message(f"招待リンク削除を **{'有効' if DELETE_INVITE_ENABLED else '無効'}** にしました。")
-
-@bot.tree.command(name="reset_name", description="Botの名前を変更します")
-@app_commands.checks.has_permissions(administrator=True)
-async def reset_name(interaction: discord.Interaction, new_name: str):
-    try:
-        await bot.user.edit(username=new_name)
-        await interaction.response.send_message(f"Botの名前を `{new_name}` に変更しました。")
-    except Exception as e:
-        await interaction.response.send_message(f"エラーが発生しました: {e}")
 
 keep_alive()
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
