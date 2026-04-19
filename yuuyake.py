@@ -106,10 +106,8 @@ class ChallengeView(discord.ui.View):
         if not guest_data:
             return await interaction.response.send_message("ガチャか召喚で装備を整えてください！", ephemeral=True)
 
-        # レアリティの重み(weight)を使って勝率を計算
         total = self.host_data['weight'] + guest_data['weight']
-        win_roll = random.randint(1, total)
-        winner = self.host if win_roll <= self.host_data['weight'] else interaction.user
+        winner = self.host if random.randint(1, total) <= self.host_data['weight'] else interaction.user
         
         result_msg = (
             f"⚔️ **コロシアム決着** ⚔️\n"
@@ -119,26 +117,28 @@ class ChallengeView(discord.ui.View):
             f"🏆 勝者: **{winner.mention}** ！"
         )
         
+        # 【修正】募集メッセージを結果に書き換える（これで通知は1回だけになります）
         await interaction.response.edit_message(content=result_msg, view=None)
-        
-        # 設定されたログチャンネルにも結果を送信
-        if current_log_channel_id:
-            log_ch = bot.get_channel(current_log_channel_id)
-            if log_ch: await log_ch.send(f"📋 **公式記録**\n{result_msg}")
+
+        # 【追加】指定された「最新ログ」メッセージを上書き更新
+        log_display = battle_log_messages.get(interaction.channel.id)
+        if log_display:
+            try: await log_display.edit(content=f"📝 **最新の戦闘記録**\n{result_msg}")
+            except: pass
 
 class BattleRecruitView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
-    @discord.ui.button(label="対戦相手を募集", style=discord.ButtonStyle.primary, custom_id="recruit")
+    @discord.ui.button(label="対戦相手を募集", style=discord.ButtonStyle.primary, custom_id="recruit_v2")
     async def recruit(self, interaction: discord.Interaction, button: discord.ui.Button):
         data = user_inventory.get(interaction.user.id)
         if not data: return await interaction.response.send_message("装備がありません！", ephemeral=True)
         
-        if not current_log_channel_id:
-            return await interaction.response.send_message("ログチャンネルが設定されていません。", ephemeral=True)
-
         log_ch = bot.get_channel(current_log_channel_id)
+        if not log_ch: return await interaction.response.send_message("ログチャンネルが設定されていません。", ephemeral=True)
+
         view = ChallengeView(interaction.user, data)
         await log_ch.send(f"📢 **対戦者募集中！**\n挑戦者: {interaction.user.mention}\n装備: {data['name']}\n下のボタンで参加！", view=view)
+        # 【修正】通知を自分だけに見えるようにしてログを汚さない
         await interaction.response.send_message(f"{log_ch.mention} で募集を開始しました！", ephemeral=True)
 
 # --- イベント ---
@@ -160,11 +160,20 @@ async def on_message(message):
         await message.reply(f"🔮 召喚: **{item}** と契約した！")
 
 # --- コマンド ---
-@bot.tree.command(name="set_log_channel", description="ログチャンネルを設定")
-async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    global current_log_channel_id
-    current_log_channel_id = channel.id
-    await interaction.response.send_message(f"ログ先を {channel.mention} に設定しました。")
+@bot.tree.command(name="setup_battle_field", description="対戦パネルと最新ログ更新場所を設置します")
+@app_commands.describe(log_channel="最新の対戦結果を更新し続けるチャンネル")
+async def setup_battle(interaction: discord.Interaction, log_channel: discord.TextChannel = None):
+    # 受付パネル
+    await interaction.channel.send("⚔️ **コロシアム受付**\n戦いたい奴はボタンを押せ！", view=BattleRecruitView())
+    
+    # 最新ログ表示用メッセージ
+    target_ch = log_channel or interaction.channel
+    log_msg = await target_ch.send("📝 **最新の戦闘記録**\n(まだ対戦データはありません)")
+    
+    # メッセージを記録
+    battle_log_messages[interaction.channel.id] = log_msg
+    
+    await interaction.response.send_message(f"設置完了。最新ログ更新先: {target_ch.mention}", ephemeral=True)
 
 @bot.tree.command(name="fun_mode", description="お遊びモード設定")
 @app_commands.choices(mode=[
