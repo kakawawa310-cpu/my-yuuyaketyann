@@ -12,6 +12,7 @@ ID_LIST_CHANNEL_ID = 1472220342889218250
 current_log_channel_id = 1472220342889218250
 fun_channel_id = None
 channel_fun_modes = {} 
+user_inventory = {}
 
 app = Flask('')
 @app.route('/')
@@ -70,20 +71,20 @@ async def on_message(message):
     if message.author.bot: return
 
     # 1. お遊び機能（モード判定）
+    # お遊びチャンネルでの反応
     mode = channel_fun_modes.get(message.channel.id)
     if mode:
         import random
-        # ガチャの判定
         if (mode == "all" or mode == "gacha") and message.content == "ガチャ":
-            prizes = ["💎 SSR: 伝説の剣", "✨ SR: 魔法の杖", "🪵 R: ただの棒", "🧹 N: 掃除用具"]
-            res = random.choices(prizes, weights=[2, 8, 30, 60])[0]
-            await message.reply(f"ガチャの結果... **{res}** ！！")
+            res = random.choices(["💎 SSR: 伝説の剣", "✨ SR: 魔法の杖", "🪵 R: ただの棒"], weights=[5, 25, 70])[0]
+            user_inventory[message.author.id] = res # データを保存
+            await message.reply(f"ガチャの結果... **{res}** を手に入れた！（対戦パネルで使用可能）")
 
-        # 召喚の判定
         elif (mode == "all" or mode == "summon") and message.content == "召喚":
-            monsters = ["✨ 伝説の神獣", "🐉 ドラゴン", "🐺 ウルフ", "🐱 ぬこ", "💧 スライム"]
-            res = random.choices(monsters, weights=[1, 4, 15, 40, 40])[0]
-            await message.channel.send(f"{message.author.mention} が **{res}** を召喚した！")
+            res = random.choices(["✨ 伝説の神獣", "🐉 ドラゴン", "🐱 ぬこ"], weights=[5, 25, 70])[0]
+            user_inventory[message.author.id] = res # データを保存
+            await message.channel.send(f"{message.author.mention} は **{res}** を召喚して契約した！")
+
 
     # 2. ID登録処理（既存）
     if message.channel.id == ID_LIST_CHANNEL_ID and message.content.isdigit():
@@ -103,6 +104,57 @@ async def on_message(message):
             except: pass
 
 # --- スラッシュコマンド ---
+
+class BattleRecruitView(discord.ui.View):
+    def __init__(self, host=None):
+        super().__init__(timeout=None)
+        self.host = host # 募集した人
+
+    @discord.ui.button(label="対戦を募集する", style=discord.ButtonStyle.primary, custom_id="recruit_btn")
+    async def recruit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        item = user_inventory.get(interaction.user.id)
+        if not item:
+            return await interaction.response.send_message("ガチャか召喚で武器やモンスターを手に入れてから来てください！", ephemeral=True)
+        
+        view = BattleRecruitView(host=interaction.user)
+        # 募集ボタンを「対戦を挑む」に変える
+        button.label = "この人に挑む！"
+        button.style = discord.ButtonStyle.danger
+        button.callback = self.start_battle
+        await interaction.response.send_message(f"⚔️ {interaction.user.mention} が対戦相手を募集中！ (使用: {item})", view=self)
+
+    async def start_battle(self, interaction: discord.Interaction):
+        if interaction.user.id == self.host.id:
+            return await interaction.response.send_message("自分自身には挑めません！", ephemeral=True)
+        
+        guest_item = user_inventory.get(interaction.user.id)
+        if not guest_item:
+            return await interaction.response.send_message("対戦するには先にガチャか召喚をしてきてください！", ephemeral=True)
+
+        # 対戦開始
+        import random
+        host_item = user_inventory[self.host.id]
+        winner = random.choice([self.host, interaction.user])
+        
+        result_msg = (
+            f"⚔️ **対戦終了** ⚔️\n"
+            f"🔵 {self.host.mention} ({host_item})\n"
+            f"   vs\n"
+            f"🔴 {interaction.user.mention} ({guest_item})\n\n"
+            f"🏆 勝者: **{winner.mention}** ！"
+        )
+        await interaction.response.edit_message(content=result_msg, view=None)
+
+        # ログ送信
+        log_channel = bot.get_channel(current_log_channel_id)
+        if log_channel:
+            await log_channel.send(f"📋 **バトルログ**\n場所: {interaction.channel.mention}\n{result_msg}")
+
+# パネル設置コマンド
+@bot.tree.command(name="setup_battle_field", description="対戦募集パネルを設置します")
+async def setup_battle_field(interaction: discord.Interaction):
+    await interaction.channel.send("🛡️ **コロシアムへようこそ**\n武器やモンスターを持っているなら、ここで対戦相手を募集しよう！", view=BattleRecruitView())
+    await interaction.response.send_message("対戦パネルを設置しました。", ephemeral=True)
 
 @bot.tree.command(name="fun_mode", description="このチャンネルのお遊びモードを設定します")
 @app_commands.describe(mode="モードを選択してください")
