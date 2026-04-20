@@ -83,26 +83,33 @@ bot = MyBot()
 
 # --- 管理設定コマンド ---
 
+# --- 管理設定コマンド (既存のコマンドエリアへ) ---
+
 @bot.command()
 async def set_copy(ctx, source: discord.TextChannel, dest: discord.TextChannel):
-    """設定を保存して、ファイルにも書き出す"""
+    """コピー元と貼り付け先を保存する"""
     # JSON保存のためにキーを文字列にする
-    forward_settings[str(source.id)] = dest.id
-    save_settings(forward_settings)
+    bot.forward_settings[str(source.id)] = dest.id
+    save_settings(bot.forward_settings)
     await ctx.send(f"保存完了！再起動しても消えません。\n{source.mention} → {dest.mention}")
+
+# --- メッセージ受信イベント (既存のon_message内へ) ---
 
 @bot.event
 async def on_message(message):
+    # Bot自身の発言は無視
     if message.author == bot.user:
         return
 
-    # 読み取り時も文字列としてチェック
-    if str(message.channel.id) in forward_settings:
-        dest_id = forward_settings[str(message.channel.id)]
+    # 【コピー＆ペースト機能】
+    if str(message.channel.id) in bot.forward_settings:
+        dest_id = bot.forward_settings[str(message.channel.id)]
         dest_channel = bot.get_channel(dest_id)
         if dest_channel:
-            await dest_channel.send(f"**{message.author.display_name}**: {message.content}")
+            # 純粋にコピペ（名前: 本文）
+            await dest_channel.send(f"{message.author.display_name}: {message.content}")
 
+    # これを忘れるとガチャなどのコマンドが動かなくなるので注意
     await bot.process_commands(message)
     
 @bot.tree.command(name="setup_admin", description="管理用ログチャンネルと招待削除の有無を設定します")
