@@ -6,6 +6,7 @@ from discord.ext import commands
 from discord import app_commands
 from flask import Flask
 from threading import Thread
+import json
 
 # --- ダミーサーバー設定 ---
 app = Flask('')
@@ -24,6 +25,22 @@ def keep_alive():
     t.start()
 
 # --- ガチャデータ ---
+SETTING_FILE = "forward_settings.json"
+
+# 2. 起動時にファイルから読み込む関数
+def load_settings():
+    if os.path.exists(SETTING_FILE):
+        with open(SETTING_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+# 3. 設定をファイルに書き込む関数
+def save_settings(settings):
+    with open(SETTING_FILE, "w") as f:
+        json.dump(settings, f)
+
+forward_settings = load_settings()
+
 GACHA_TABLE = {
     "SSR": (["[極] 聖騎士アーサー", "[極] 闇の魔導師"], 3),
     "SR":  (["伝説の剣", "守護者の鎧", "癒やしの杖"], 12),
@@ -66,6 +83,28 @@ bot = MyBot()
 
 # --- 管理設定コマンド ---
 
+@bot.command()
+async def set_copy(ctx, source: discord.TextChannel, dest: discord.TextChannel):
+    """設定を保存して、ファイルにも書き出す"""
+    # JSON保存のためにキーを文字列にする
+    forward_settings[str(source.id)] = dest.id
+    save_settings(forward_settings)
+    await ctx.send(f"保存完了！再起動しても消えません。\n{source.mention} → {dest.mention}")
+
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    # 読み取り時も文字列としてチェック
+    if str(message.channel.id) in forward_settings:
+        dest_id = forward_settings[str(message.channel.id)]
+        dest_channel = bot.get_channel(dest_id)
+        if dest_channel:
+            await dest_channel.send(f"**{message.author.display_name}**: {message.content}")
+
+    await bot.process_commands(message)
+    
 @bot.tree.command(name="setup_admin", description="管理用ログチャンネルと招待削除の有無を設定します")
 @app_commands.describe(channel="ログを出力するチャンネル", anti_invite="招待リンクを削除するかどうか")
 async def setup_admin(interaction: discord.Interaction, channel: discord.TextChannel, anti_invite: bool):
