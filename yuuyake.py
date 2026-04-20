@@ -89,12 +89,14 @@ bot = MyBot()
 DEST_CHANNEL_ID = 1495747010802876528 
 
 @bot.command()
-async def set_source(ctx, source: discord.TextChannel):
-    """コピー元（送り元）を登録する"""
-    bot.forward_settings[str(source.id)] = DEST_CHANNEL_ID
-    save_settings(bot.forward_settings)
-    await ctx.send(f"監視開始：{source.mention} の投稿を固定チャンネルへ転送します。")
-    # ここにあった await bot.process_commands(message) は削除しました（コマンド内では不要なため）
+async def check_settings(ctx):
+    """保存されている設定をチャットに表示する"""
+    if os.path.exists(SETTING_FILE):
+        with open(SETTING_FILE, "r") as f:
+            data = f.read()
+        await ctx.send(f"現在の設定ファイルの中身:\n```json\n{data}\n```")
+    else:
+        await ctx.send("設定ファイルがまだ作られていません。")
 
 # --- メッセージ受信イベント ---
 
