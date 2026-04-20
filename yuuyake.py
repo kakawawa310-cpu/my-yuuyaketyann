@@ -83,34 +83,32 @@ bot = MyBot()
 
 # --- 管理設定コマンド ---
 
-# --- 管理設定コマンド (既存のコマンドエリアへ) ---
+# 送り先（ペースト先）のチャンネルIDを固定
+DEST_CHANNEL_ID = 1495747010802876528 
+
+@bot.command()
+async def set_source(ctx, source: discord.TextChannel):
+    """コピー元（送り元）を登録する"""
+    bot.forward_settings[str(source.id)] = DEST_CHANNEL_ID
+    save_settings(bot.forward_settings)
+    await ctx.send(f"監視開始：{source.mention} の投稿を固定チャンネルへ転送します。")
+    # ここにあった await bot.process_commands(message) は削除しました（コマンド内では不要なため）
+
+# --- メッセージ受信イベント ---
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
 
-    # メッセージが届いたチャンネルが、登録された「送り元」リストにあるか確認
+    # 登録された「送り元」リストにあるか確認
     if str(message.channel.id) in bot.forward_settings:
         dest_id = bot.forward_settings[str(message.channel.id)]
         dest_channel = bot.get_channel(dest_id)
         if dest_channel:
-            # 純粋に「名前: 本文」をコピペ
             await dest_channel.send(f"{message.author.display_name}: {message.content}")
 
-    await bot.process_commands(message)
-
-# 送り先（ペースト先）のチャンネルIDをここに固定
-DEST_CHANNEL_ID = 1495747010802876528  # あなたの鯖のチャンネルIDを入れる
-
-@bot.command()
-async def set_source(ctx, source: discord.TextChannel):
-    """コピー元（送り元）を登録する"""
-    # 辞書のキーを送り元ID、値を固定の送り先IDにする
-    bot.forward_settings[str(source.id)] = DEST_CHANNEL_ID
-    save_settings(bot.forward_settings)
-    await ctx.send(f"監視開始：{source.mention} の投稿を固定チャンネルへ転送します。")
-
+    # 他のコマンド（!set_sourceなど）を動かすために必須
     await bot.process_commands(message)
     
 @bot.tree.command(name="setup_admin", description="管理用ログチャンネルと招待削除の有無を設定します")
