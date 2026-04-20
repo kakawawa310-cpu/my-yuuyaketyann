@@ -70,9 +70,11 @@ class MyBot(commands.Bot):
         intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
         
-        # 設定保存用
-        self.channel_configs = {}  # {channel_id: mode}
-        self.log_channel_id = None # ログ出力先
+        # ↓↓↓ この行を追加してください（super().__init__より下であればOK）
+        self.forward_settings = load_settings() 
+
+        self.channel_configs = {}  # ここから下は既存のコード
+        self.log_channel_id = None
         self.anti_invite = False   # 招待削除の有効化フラグ
         self.source_guild_id = 1176515964561526914 # 監視対象サーバーID
 
