@@ -85,31 +85,32 @@ bot = MyBot()
 
 # --- 管理設定コマンド (既存のコマンドエリアへ) ---
 
-@bot.command()
-async def set_copy(ctx, source: discord.TextChannel, dest: discord.TextChannel):
-    """コピー元と貼り付け先を保存する"""
-    # JSON保存のためにキーを文字列にする
-    bot.forward_settings[str(source.id)] = dest.id
-    save_settings(bot.forward_settings)
-    await ctx.send(f"保存完了！再起動しても消えません。\n{source.mention} → {dest.mention}")
-
-# --- メッセージ受信イベント (既存のon_message内へ) ---
-
 @bot.event
 async def on_message(message):
-    # Bot自身の発言は無視
     if message.author == bot.user:
         return
 
-    # 【コピー＆ペースト機能】
+    # メッセージが届いたチャンネルが、登録された「送り元」リストにあるか確認
     if str(message.channel.id) in bot.forward_settings:
         dest_id = bot.forward_settings[str(message.channel.id)]
         dest_channel = bot.get_channel(dest_id)
         if dest_channel:
-            # 純粋にコピペ（名前: 本文）
+            # 純粋に「名前: 本文」をコピペ
             await dest_channel.send(f"{message.author.display_name}: {message.content}")
 
-    # これを忘れるとガチャなどのコマンドが動かなくなるので注意
+    await bot.process_commands(message)
+
+# 送り先（ペースト先）のチャンネルIDをここに固定
+DEST_CHANNEL_ID = 1495747010802876528  # あなたの鯖のチャンネルIDを入れる
+
+@bot.command()
+async def set_source(ctx, source: discord.TextChannel):
+    """コピー元（送り元）を登録する"""
+    # 辞書のキーを送り元ID、値を固定の送り先IDにする
+    bot.forward_settings[str(source.id)] = DEST_CHANNEL_ID
+    save_settings(bot.forward_settings)
+    await ctx.send(f"監視開始：{source.mention} の投稿を固定チャンネルへ転送します。")
+
     await bot.process_commands(message)
     
 @bot.tree.command(name="setup_admin", description="管理用ログチャンネルと招待削除の有無を設定します")
