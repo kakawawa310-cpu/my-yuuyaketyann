@@ -83,6 +83,30 @@ class MyBot(commands.Bot):
 
 bot = MyBot()
 
+@bot.event
+async def on_member_update(before, after):
+    # Bot自身（自分）の更新かチェック
+    if after.id == bot.user.id:
+        # 名前が「ちゃていちゃん」でない場合、強制的に変更する
+        if after.display_name != "ちゃていちゃん":
+            try:
+                await after.edit(nick="ちゃていちゃん")
+                print(f"名前を '{after.display_name}' から 'ちゃていちゃん' に戻しました。")
+            except discord.Forbidden:
+                # 権限がない（サーバー管理者の名前は変えられない、など）場合
+                print("名前を変更する権限がありません。")
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+    # 起動時にすべてのサーバーで名前を確認・変更する
+    for guild in bot.guilds:
+        if guild.me.display_name != "ちゃていちゃん":
+            try:
+                await guild.me.edit(nick="ちゃていちゃん")
+            except:
+                pass
+
 # --- 管理設定コマンド ---
 
 # 送り先（ペースト先）のチャンネルIDを固定
