@@ -72,7 +72,7 @@ async def 読み上げ関数名(message):
 
     # 2. ここをあなたのコードの変数名に合わせてください！
     # もし設定データが 'self.config' なら、self.config.get(...) にします
-    voice_config = return.get(str(speaker_id)) 
+    voice_config = voice_db.get(str(speaker_id))  
     
     if not voice_config:
         voice_config = return.get(str(message.author.id))
