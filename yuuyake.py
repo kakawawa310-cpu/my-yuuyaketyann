@@ -89,7 +89,7 @@ bot = MyBot()
 
 speaker_id = user_copy_map.get(message.author.id, message.author.id)
 voice_config = voice_db.get(str(speaker_id))
-    voice_config = voice_db.get(str(message.author.id), default_config)
+
 @tree.command(name="make_global_vc", description="このサーバーにVC作成の入り口を生成します")
 async def make_global_vc(interaction: discord.Interaction):
     # コマンドを打った場所のカテゴリに作成
