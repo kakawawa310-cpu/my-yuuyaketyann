@@ -26,6 +26,10 @@ def keep_alive():
 
 # --- ガチャデータ ---
 SETTING_FILE = "forward_settings.json"
+# 誰が誰をコピーしているかを保持（実行中のメモリ用）
+# {設定した人のID: コピーされた人のID}
+user_copy_map = {} 
+parent_vcs = {}
 
 # 2. 起動時にファイルから読み込む関数
 def load_settings():
@@ -82,6 +86,70 @@ class MyBot(commands.Bot):
         await self.tree.sync()
 
 bot = MyBot()
+
+@tree.command(name="make_global_vc", description="このサーバーにVC作成の入り口を生成します")
+async def make_global_vc(interaction: discord.Interaction):
+    # コマンドを打った場所のカテゴリに作成
+    new_parent = await interaction.guild.create_voice_channel(
+        name="🌐 グローバルVC作成口",
+        category=interaction.channel.category
+    )
+    
+    # このサーバーでの「親」として登録
+    parent_vcs[interaction.guild.id] = new_parent.id
+    
+    await interaction.response.send_message(f"【{interaction.guild.name}】にグローバル入り口を設置しました！", ephemeral=True)
+
+@client.event
+async def on_voice_state_update(member, before, after):
+    # 1. 自分が管理している「親VC」に入ったかチェック
+    parent_id = parent_vcs.get(member.guild.id)
+    
+    if after.channel and after.channel.id == parent_id:
+        # コピー設定（@で指定した人、いなければ自分）を取得
+        target_id = user_copy_map.get(member.id, member.id)
+        target = member.guild.get_member(target_id) or member
+        
+        # コピーVC（子）を作成
+        child_vc = await after.channel.category.create_voice_channel(
+            name=f"👥 {target.display_name} のコピー",
+            bitrate=after.channel.bitrate
+        )
+        
+        # 入った人をそのままコピーVCへ飛ばす
+        await member.move_to(child_vc)
+
+    # 2. コピーVC（👥付き）が空になったら自動削除
+    if before.channel and "👥" in before.channel.name:
+        if len(before.channel.members) == 0:
+            await before.channel.delete()
+
+@tree.command(name="set_copy", description="コピーする対象を指定します（指定なしで自分に戻す）")
+@app_commands.describe(target="コピーしたい相手（メンション）を選んでください")
+async def set_copy(interaction: discord.Interaction, target: discord.Member = None):
+    # user_copy_map は、この回答の前のターンで定義した辞書変数です
+    if target:
+        # コピー対象をIDで保存（JSONへの保存もここで行う）
+        user_copy_map[interaction.user.id] = target.id
+        
+        # もし既存のJSONに保存する関数があればここで呼び出す
+        # save_copy_data(user_copy_map) 
+        
+        await interaction.response.send_message(
+            f"✅ コピー対象を **{target.display_name}** さんに設定しました。\n"
+            f"これ以降、作成されるVC名や読み上げがこの方の設定になります。", 
+            ephemeral=True
+        )
+    else:
+        # 引数がない場合は設定を削除して自分自身に戻す
+        user_copy_map.pop(interaction.user.id, None)
+        
+        # save_copy_data(user_copy_map)
+        
+        await interaction.response.send_message(
+            "🔄 コピー設定をリセットしました。自分自身の名前と声を使用します。", 
+            ephemeral=True
+        )
 
 @bot.event
 async def on_member_update(before, after):
