@@ -87,73 +87,90 @@ class MyBot(commands.Bot):
 
 bot = MyBot()
 
-speaker_id = user_copy_map.get(message.author.id, message.author.id)
-voice_config = voice_db.get(str(speaker_id))
-    voice_config = voice_db.get(str(message.author.id), default_config)
-
-@tree.command(name="make_global_vc", description="このサーバーにVC作成の入り口を生成します")
-async def make_global_vc(interaction: discord.Interaction):
-    # コマンドを打った場所のカテゴリに作成
-    new_parent = await interaction.guild.create_voice_channel(
-        name="🌐 グローバルVC作成口",
-        category=interaction.channel.category
-    )
-    
-    # このサーバーでの「親」として登録
-    parent_vcs[interaction.guild.id] = new_parent.id
-    
-    await interaction.response.send_message(f"【{interaction.guild.name}】にグローバル入り口を設置しました！", ephemeral=True)
-
-@client.event
+@bot.event
 async def on_voice_state_update(member, before, after):
-    # 1. 自分が管理している「親VC」に入ったかチェック
+    # 1. 作成処理：そのサーバーの「作成口」に入ったかチェック
     parent_id = parent_vcs.get(member.guild.id)
     
     if after.channel and after.channel.id == parent_id:
-        # コピー設定（@で指定した人、いなければ自分）を取得
+        # コピー対象を特定（いなければ本人）
         target_id = user_copy_map.get(member.id, member.id)
         target = member.guild.get_member(target_id) or member
         
-        # コピーVC（子）を作成
-        child_vc = await after.channel.category.create_voice_channel(
+        # 「グローバルボイス」カテゴリーを探す
+        category = discord.utils.get(member.guild.categories, name="グローバルボイス")
+        
+        # 新しいVCを作成（名前をコピー対象にする）
+        new_vc = await member.guild.create_voice_channel(
             name=f"👥 {target.display_name} のコピー",
+            category=category,
             bitrate=after.channel.bitrate
         )
         
-        # 入った人をそのままコピーVCへ飛ばす
-        await member.move_to(child_vc)
+        # 本人を新VCへ移動
+        await member.move_to(new_vc)
 
-    # 2. コピーVC（👥付き）が空になったら自動削除
+    # 2. 削除処理：コピーVC（👥付き）から人がいなくなったら消す
     if before.channel and "👥" in before.channel.name:
         if len(before.channel.members) == 0:
-            await before.channel.delete()
+            # 念のため「作成口」自体は消さないようにチェック
+            if before.channel.id != parent_id:
+                await before.channel.delete()
 
-@tree.command(name="set_copy", description="コピーする対象を指定します（指定なしで自分に戻す）")
+# --- コマンド部分 ---
+
+# 1. コピー対象を設定するコマンド
+@tree.command(name="set_copy", description="コピーする対象を指定します（空欄で自分）")
 @app_commands.describe(target="コピーしたい相手（メンション）を選んでください")
 async def set_copy(interaction: discord.Interaction, target: discord.Member = None):
-    # user_copy_map は、この回答の前のターンで定義した辞書変数です
     if target:
-        # コピー対象をIDで保存（JSONへの保存もここで行う）
         user_copy_map[interaction.user.id] = target.id
-        
-        # もし既存のJSONに保存する関数があればここで呼び出す
-        # save_copy_data(user_copy_map) 
-        
         await interaction.response.send_message(
             f"✅ コピー対象を **{target.display_name}** さんに設定しました。\n"
-            f"これ以降、作成されるVC名や読み上げがこの方の設定になります。", 
+            f"作成されるVCの名前と読み上げに反映されます。", 
             ephemeral=True
         )
     else:
-        # 引数がない場合は設定を削除して自分自身に戻す
         user_copy_map.pop(interaction.user.id, None)
-        
-        # save_copy_data(user_copy_map)
-        
         await interaction.response.send_message(
-            "🔄 コピー設定をリセットしました。自分自身の名前と声を使用します。", 
+            "🔄 コピー設定をリセットしました（自分自身を使用します）。", 
             ephemeral=True
         )
+
+# 2. グローバルボイスのカテゴリーと入り口VCを作成するコマンド
+@tree.command(name="setup_global_vc", description="グローバルボイス用のカテゴリーと入り口を設置します")
+async def setup_global_vc(interaction: discord.Interaction):
+    guild = interaction.guild
+    
+    # 「グローバルボイス」カテゴリーを作成（既にある場合はそれを使う）
+    category = discord.utils.get(guild.categories, name="グローバルボイス")
+    if category is None:
+        category = await guild.create_category("グローバルボイス")
+    
+    # 入り口となるVCを作成
+    entrance_vc = await guild.create_voice_channel(
+        name="➕ ここに入ると作成",
+        category=category
+    )
+    
+    # サーバーごとの入り口IDを登録（on_voice_state_updateで使用）
+    parent_vcs[guild.id] = entrance_vc.id
+    
+    # パネル（案内メッセージ）を送信
+    embed = discord.Embed(
+        title="🌐 グローバルボイスパネル",
+        description=(
+            f"設置が完了しました！\n\n"
+            f"1. {entrance_vc.mention} に入ると、あなたの専用VCが作られます。\n"
+            f"2. `/set_copy` で指定した人の名前と読み上げ設定が引き継がれます。\n"
+            f"3. 誰もいなくなるとチャンネルは自動で削除されます。"
+        ),
+        color=discord.Color.blue()
+    )
+    
+    await interaction.response.send_message(embed=embed)
+
+# -----------------
 
 @bot.event
 async def on_member_update(before, after):
