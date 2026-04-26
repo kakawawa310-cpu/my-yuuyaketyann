@@ -65,6 +65,17 @@ def pull_lottery(table):
     chosen_rarity = random.choices(rarities, weights=weights)[0]
     item = random.choice(table[chosen_rarity][0])
     return chosen_rarity, item
+# --- あなたの読み上げ関数の中 ---
+async def 読み上げ関数名(message):
+    # 1. 誰の声を使うか判定
+    speaker_id = user_copy_map.get(message.author.id, message.author.id)
+
+    # 2. ここをあなたのコードの変数名に合わせてください！
+    # もし設定データが 'self.config' なら、self.config.get(...) にします
+    voice_config = return.get(str(speaker_id)) 
+    
+    if not voice_config:
+        voice_config = return.get(str(message.author.id))
 
 # --- Botクラス定義 ---
 class MyBot(commands.Bot):
@@ -88,34 +99,37 @@ class MyBot(commands.Bot):
 bot = MyBot()
 
 @bot.event
+async def on_message(message):
+    if message.author.bot: return
+
+    # コピー対象がいればその人のID、いなければ発言者本人のIDを使う
+    speaker_id = user_copy_map.get(message.author.id, message.author.id)
+
+    # 【ここにあなたの既存の読み上げ処理を繋げます】
+    # 例：既存の読み上げ機能が「speaker_id」の設定を使って喋るように書く
+    
+    await bot.process_commands(message)
+    
+@bot.event  # ← ここが client になっていませんか？
 async def on_voice_state_update(member, before, after):
-    # 1. 作成処理：そのサーバーの「作成口」に入ったかチェック
+    # parent_vcs が関数の外にあるので、ここはこのままでOK
     parent_id = parent_vcs.get(member.guild.id)
     
     if after.channel and after.channel.id == parent_id:
-        # コピー対象を特定（いなければ本人）
         target_id = user_copy_map.get(member.id, member.id)
         target = member.guild.get_member(target_id) or member
         
-        # 「グローバルボイス」カテゴリーを探す
         category = discord.utils.get(member.guild.categories, name="グローバルボイス")
         
-        # 新しいVCを作成（名前をコピー対象にする）
         new_vc = await member.guild.create_voice_channel(
             name=f"👥 {target.display_name} のコピー",
-            category=category,
-            bitrate=after.channel.bitrate
+            category=category
         )
-        
-        # 本人を新VCへ移動
         await member.move_to(new_vc)
 
-    # 2. 削除処理：コピーVC（👥付き）から人がいなくなったら消す
     if before.channel and "👥" in before.channel.name:
         if len(before.channel.members) == 0:
-            # 念のため「作成口」自体は消さないようにチェック
-            if before.channel.id != parent_id:
-                await before.channel.delete()
+            await before.channel.delete()
 
 # --- コマンド部分 ---
 
