@@ -69,12 +69,7 @@ def pull_lottery(table):
 async def 読み上げ関数名(message):
     # 1. 誰の声を使うか判定
     speaker_id = user_copy_map.get(message.author.id, message.author.id)
-
-    # 2. ここをあなたのコードの変数名に合わせてください！
-    # もし設定データが 'self.config' なら、self.config.get(...) にします
-      # speaker_id を使って設定を取得する
     voice_config = voice_db.get(str(speaker_id))  
-    
     if not voice_config:
         voice_config = voice_db.get(str(message.author.id))
 
