@@ -71,7 +71,9 @@ async def 読み上げ関数名(message):
     speaker_id = user_copy_map.get(message.author.id, message.author.id)
     voice_config = voice_db.get(str(speaker_id))  
     if not voice_config:
-        voice_config = voice_db.get(str(message.author.id))
+    speaker_id = user_copy_map.get(message.author.id, message.author.id)
+    voice_config = voice_db.get(str(speaker_id))
+
 
 # --- Botクラス定義 ---
 class MyBot(commands.Bot):
