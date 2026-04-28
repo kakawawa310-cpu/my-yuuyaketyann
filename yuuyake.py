@@ -67,12 +67,16 @@ def pull_lottery(table):
     return chosen_rarity, item
 # --- あなたの読み上げ関数の中 ---
 async def 読み上げ関数名(message):
-    # 1. 誰の声を使うか判定
+    # 1. まず「誰をコピーしているか」を確認してIDを特定
     speaker_id = user_copy_map.get(message.author.id, message.author.id)
+    
+    # 2. そのIDで設定を取得
     voice_config = voice_db.get(str(speaker_id))  
+    
+    # 3. もしコピー対象がDBに登録されていなければ、念のため「発言者本人」の設定を試す
     if not voice_config:
-     speaker_id = user_copy_map.get(message.author.id, message.author.id)
-     voice_config = voice_db.get(str(speaker_id))
+        voice_config = voice_db.get(str(message.author.id))
+
 
 
 # --- Botクラス定義 ---
